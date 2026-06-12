@@ -10,6 +10,7 @@
 #include <cmath>
 #include <format>
 #include <random>
+#include <span>
 
 namespace cc {
 namespace {
@@ -30,6 +31,22 @@ constexpr float kMenuPanSpeed = 3.0f;
 constexpr float kMenuCamHeight = 24.0f;
 
 constexpr const char* kSavesRoot = "saves";
+constexpr const char* kSettingsPath = "settings.txt";
+
+constexpr std::array<int, 7> kRenderDistanceOptions{4, 6, 8, 10, 12, 14, 16};
+constexpr std::array<int, 7> kFovOptions{60, 70, 75, 80, 90, 100, 110};
+
+// Advance to the option after `current` (nearest match), wrapping.
+[[nodiscard]] int cycleOption(int current, std::span<const int> options) noexcept {
+    std::size_t index = 0;
+    for (std::size_t i = 0; i < options.size(); ++i) {
+        if (options[i] == current) {
+            index = i;
+            break;
+        }
+    }
+    return options[(index + 1) % options.size()];
+}
 
 #ifdef NDEBUG
 constexpr bool kDebugBuild = false;
@@ -53,16 +70,19 @@ constexpr bool kDebugBuild = true;
 } // namespace
 
 Application::Application()
-    : m_window{1600, 900, "claudecraft", kDebugBuild},
+    : m_settings{Settings::load(kSettingsPath)},
+      m_window{1600, 900, "claudecraft", kDebugBuild},
       m_input{m_window.handle()},
       m_renderer{},
       m_hud{},
       m_pool{workerCount()},
       m_player{glm::vec3{0.0f}},
-      m_camera{75.0f, 16.0f / 9.0f, 0.1f, 600.0f} {
+      m_camera{static_cast<float>(m_settings.fovDeg), 16.0f / 9.0f, 0.1f, 600.0f} {
     if (kDebugBuild) {
         gl::enableDebugOutput();
     }
+    m_window.setVsync(m_settings.vsync);
+    m_window.setFullscreen(m_settings.fullscreen);
     logInfo(std::format("{} workers", m_pool.threadCount()));
     enterMenu();
 }
@@ -89,7 +109,8 @@ void Application::startGame(const WorldInfo& info) {
     m_menuWorld.reset();
     m_renderer.clearChunkMeshes();
 
-    m_world = std::make_unique<World>(info.seed, kRenderDistance, m_pool, info.directory);
+    m_world = std::make_unique<World>(info.seed, m_settings.renderDistance, m_pool,
+                                      info.directory);
     const float spawnY = static_cast<float>(m_world->generator().surfaceHeight(8, 8)) + 2.5f;
     m_player = Player{glm::vec3{8.5f, spawnY, 8.5f}};
     m_currentWorld = info;
@@ -98,6 +119,20 @@ void Application::startGame(const WorldInfo& info) {
     m_window.setCursorCaptured(true);
     m_input.resetMouseDelta();
     logInfo(std::format("entering world '{}' (seed {})", info.name, info.seed));
+}
+
+void Application::enterSettings(GameState from) {
+    m_settingsFrom = from;
+    m_settingsCategory = SettingsCategory::Video;
+    m_state = GameState::Settings;
+}
+
+void Application::leaveSettings() {
+    m_settings.save(kSettingsPath);
+    m_state = m_settingsFrom;
+    if (m_state == GameState::Menu) {
+        m_menuScreen = MenuScreen::Main;
+    }
 }
 
 void Application::setPaused(bool paused) {
@@ -122,17 +157,17 @@ glm::vec2 Application::mouseUiPosition(const glm::ivec2& fbSize) const noexcept 
 }
 
 bool Application::button(const glm::ivec2& fbSize, float centerX, float bottomY,
-                         std::string_view label) {
-    const float x = centerX - kButtonWidth * 0.5f;
+                         std::string_view label, float width) {
+    const float x = centerX - width * 0.5f;
     const glm::vec2 mouse = mouseUiPosition(fbSize);
-    const bool hovered = mouse.x >= x && mouse.x <= x + kButtonWidth && mouse.y >= bottomY &&
+    const bool hovered = mouse.x >= x && mouse.x <= x + width && mouse.y >= bottomY &&
                          mouse.y <= bottomY + kButtonHeight;
 
     if (hovered) {
-        m_hud.rect(x - 3.0f, bottomY - 3.0f, kButtonWidth + 6.0f, kButtonHeight + 6.0f,
+        m_hud.rect(x - 3.0f, bottomY - 3.0f, width + 6.0f, kButtonHeight + 6.0f,
                    Hud::RectStyle::Bright);
     }
-    m_hud.rect(x, bottomY, kButtonWidth, kButtonHeight, Hud::RectStyle::Dim);
+    m_hud.rect(x, bottomY, width, kButtonHeight, Hud::RectStyle::Dim);
     const float textW = Hud::textWidth(label, kButtonTextScale);
     m_hud.text(centerX - textW * 0.5f, bottomY + kButtonHeight * 0.5f + 4.0f * kButtonTextScale,
                kButtonTextScale, label);
@@ -165,8 +200,8 @@ void Application::handleGameplayInput(float frameDt, const RaycastHit& target) {
         m_showDebug = !m_showDebug;
     }
 
-    const glm::vec2 look = m_input.mouseDelta() * kMouseSensitivity;
-    m_player.addLook(look.x, -look.y);
+    const glm::vec2 look = m_input.mouseDelta() * kMouseSensitivity * m_settings.sensitivity;
+    m_player.addLook(look.x, m_settings.invertY ? look.y : -look.y);
 
     PlayerInput move;
     move.move.y = (m_input.isDown(GLFW_KEY_W) ? 1.0f : 0.0f) -
@@ -210,11 +245,10 @@ void Application::handleGameplayInput(float frameDt, const RaycastHit& target) {
     }
 }
 
-void Application::updateMenu(float frameDt, const glm::ivec2& fbSize) {
+// Slow diagonal pan with a drifting heading; height eases toward the
+// terrain below so mountains don't clip the camera.
+void Application::updateMenuBackdrop(float frameDt, const glm::ivec2& fbSize) {
     m_menuTime += frameDt;
-
-    // Slow diagonal pan with a drifting heading; height eases toward the
-    // terrain below so mountains don't clip the camera.
     const auto t = static_cast<float>(m_menuTime);
     m_menuEye.x += kMenuPanSpeed * frameDt;
     m_menuEye.z += kMenuPanSpeed * 0.6f * frameDt;
@@ -227,6 +261,10 @@ void Application::updateMenu(float frameDt, const glm::ivec2& fbSize) {
 
     renderWorld(*m_menuWorld, fbSize, m_menuEye, yaw, -18.0f, fogEndFor(kMenuRenderDistance),
                 std::nullopt);
+}
+
+void Application::updateMenu(float frameDt, const glm::ivec2& fbSize) {
+    updateMenuBackdrop(frameDt, fbSize);
 
     if (m_menuScreen == MenuScreen::Main) {
         drawMainScreen(fbSize);
@@ -248,7 +286,11 @@ void Application::drawMainScreen(const glm::ivec2& fbSize) {
         m_menuScreen = MenuScreen::Worlds;
         return;
     }
-    if (button(fbSize, width * 0.5f, height * 0.45f - kButtonHeight - 18.0f, "QUIT")) {
+    if (button(fbSize, width * 0.5f, height * 0.45f - kButtonHeight - 18.0f, "SETTINGS")) {
+        enterSettings(GameState::Menu);
+        return;
+    }
+    if (button(fbSize, width * 0.5f, height * 0.45f - 2.0f * (kButtonHeight + 18.0f), "QUIT")) {
         glfwSetWindowShouldClose(m_window.handle(), GLFW_TRUE);
     }
 }
@@ -328,7 +370,7 @@ void Application::updatePlaying(float frameDt, const glm::ivec2& fbSize, double&
 
     const float alpha = static_cast<float>(accumulator / kFixedDt);
     renderWorld(*m_world, fbSize, m_player.eyePosition(alpha), m_player.yaw(), m_player.pitch(),
-                fogEndFor(kRenderDistance),
+                fogEndFor(m_settings.renderDistance),
                 target.hit ? std::optional<glm::ivec3>{target.block} : std::nullopt);
 
     m_hud.crosshair(fbSize);
@@ -392,7 +434,7 @@ void Application::updatePaused(const glm::ivec2& fbSize) {
     // World keeps streaming (mesh uploads finish) but the simulation is
     // frozen: no physics steps, no look, no edits.
     renderWorld(*m_world, fbSize, m_player.eyePosition(1.0f), m_player.yaw(), m_player.pitch(),
-                fogEndFor(kRenderDistance), std::nullopt);
+                fogEndFor(m_settings.renderDistance), std::nullopt);
 
     const auto width = static_cast<float>(fbSize.x);
     const auto height = static_cast<float>(fbSize.y);
@@ -406,12 +448,104 @@ void Application::updatePaused(const glm::ivec2& fbSize) {
         setPaused(false);
         return;
     }
-    if (button(fbSize, width * 0.5f, height * 0.45f - kButtonHeight - 18.0f, "QUIT TO MENU")) {
+    if (button(fbSize, width * 0.5f, height * 0.45f - kButtonHeight - 18.0f, "SETTINGS")) {
+        enterSettings(GameState::Paused);
+        return;
+    }
+    if (button(fbSize, width * 0.5f, height * 0.45f - 2.0f * (kButtonHeight + 18.0f),
+               "QUIT TO MENU")) {
         enterMenu(); // World destructor saves modified chunks
         return;
     }
     if (m_showDebug) {
         drawDebugOverlay(fbSize, RaycastHit{});
+    }
+}
+
+bool Application::settingRow(const glm::ivec2& fbSize, float bottomY, std::string_view label,
+                             std::string_view value) {
+    const float centerX = static_cast<float>(fbSize.x) * 0.5f;
+    constexpr float kLabelScale = 2.5f;
+    const float labelW = Hud::textWidth(label, kLabelScale);
+    m_hud.text(centerX - 40.0f - labelW, bottomY + kButtonHeight * 0.5f + 4.0f * kLabelScale,
+               kLabelScale, label);
+    return button(fbSize, centerX + 170.0f, bottomY, value, 300.0f);
+}
+
+void Application::updateSettings(float frameDt, const glm::ivec2& fbSize) {
+    if (m_settingsFrom == GameState::Paused) {
+        renderWorld(*m_world, fbSize, m_player.eyePosition(1.0f), m_player.yaw(),
+                    m_player.pitch(), fogEndFor(m_settings.renderDistance), std::nullopt);
+    } else {
+        updateMenuBackdrop(frameDt, fbSize);
+    }
+
+    const auto width = static_cast<float>(fbSize.x);
+    const auto height = static_cast<float>(fbSize.y);
+    m_hud.rect(0.0f, 0.0f, width, height, Hud::RectStyle::Dim);
+    const float centerX = width * 0.5f;
+
+    const float titleScale = 6.0f;
+    const float titleW = Hud::textWidth("SETTINGS", titleScale);
+    m_hud.text(centerX - titleW * 0.5f, height * 0.92f, titleScale, "SETTINGS");
+
+    // Category tabs; the active one keeps a permanent highlight ring.
+    const float tabY = height * 0.92f - 110.0f;
+    constexpr float kTabWidth = 220.0f;
+    const float videoX = centerX - kTabWidth * 0.5f - 12.0f;
+    const float controlsX = centerX + kTabWidth * 0.5f + 12.0f;
+    const float activeX = m_settingsCategory == SettingsCategory::Video ? videoX : controlsX;
+    m_hud.rect(activeX - kTabWidth * 0.5f - 3.0f, tabY - 3.0f, kTabWidth + 6.0f,
+               kButtonHeight + 6.0f, Hud::RectStyle::Bright);
+    if (button(fbSize, videoX, tabY, "VIDEO", kTabWidth)) {
+        m_settingsCategory = SettingsCategory::Video;
+    }
+    if (button(fbSize, controlsX, tabY, "CONTROLS", kTabWidth)) {
+        m_settingsCategory = SettingsCategory::Controls;
+    }
+
+    float rowY = tabY - kButtonHeight - 60.0f;
+    constexpr float kRowStep = 72.0f;
+    if (m_settingsCategory == SettingsCategory::Video) {
+        if (settingRow(fbSize, rowY, "RENDER DISTANCE",
+                       std::format("{} CHUNKS", m_settings.renderDistance))) {
+            m_settings.renderDistance =
+                cycleOption(m_settings.renderDistance, kRenderDistanceOptions);
+            if (m_world != nullptr) {
+                m_world->setRenderDistance(m_settings.renderDistance);
+            }
+        }
+        rowY -= kRowStep;
+        if (settingRow(fbSize, rowY, "FOV", std::format("{}", m_settings.fovDeg))) {
+            m_settings.fovDeg = cycleOption(m_settings.fovDeg, kFovOptions);
+            m_camera.setFov(static_cast<float>(m_settings.fovDeg));
+        }
+        rowY -= kRowStep;
+        if (settingRow(fbSize, rowY, "VSYNC", m_settings.vsync ? "ON" : "OFF")) {
+            m_settings.vsync = !m_settings.vsync;
+            m_window.setVsync(m_settings.vsync);
+        }
+        rowY -= kRowStep;
+        if (settingRow(fbSize, rowY, "FULLSCREEN", m_settings.fullscreen ? "ON" : "OFF")) {
+            m_settings.fullscreen = !m_settings.fullscreen;
+            m_window.setFullscreen(m_settings.fullscreen);
+        }
+    } else {
+        if (settingRow(fbSize, rowY, "SENSITIVITY",
+                       std::format("{:.0f}%", m_settings.sensitivity * 100.0f))) {
+            m_settings.sensitivity += 0.2f;
+            if (m_settings.sensitivity > 3.01f) {
+                m_settings.sensitivity = 0.2f;
+            }
+        }
+        rowY -= kRowStep;
+        if (settingRow(fbSize, rowY, "INVERT Y", m_settings.invertY ? "ON" : "OFF")) {
+            m_settings.invertY = !m_settings.invertY;
+        }
+    }
+
+    if (button(fbSize, centerX, 24.0f, "BACK")) {
+        leaveSettings();
     }
 }
 
@@ -422,7 +556,7 @@ void Application::updateTitle(double now) {
     }
     const double fps = m_framesSinceTitle / (now - m_lastTitleUpdate);
     m_smoothedFps = fps;
-    if (m_state == GameState::Menu) {
+    if (m_world == nullptr) {
         m_window.setTitle(std::format("claudecraft | {:.0f} fps | menu", fps));
     } else {
         const glm::vec3 pos = m_player.position();
@@ -468,6 +602,9 @@ void Application::run() {
             case GameState::Paused:
                 setPaused(false);
                 break;
+            case GameState::Settings:
+                leaveSettings();
+                break;
             }
         }
 
@@ -485,6 +622,9 @@ void Application::run() {
                 break;
             case GameState::Paused:
                 updatePaused(fbSize);
+                break;
+            case GameState::Settings:
+                updateSettings(static_cast<float>(frameDt), fbSize);
                 break;
             }
 

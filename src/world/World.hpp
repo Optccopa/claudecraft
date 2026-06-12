@@ -54,6 +54,8 @@ public:
     bool setBlock(const glm::ivec3& worldPos, BlockType type);
 
     [[nodiscard]] bool isChunkLoadedAt(const glm::vec3& worldPos) const noexcept;
+    // Streaming adapts on the next update(): new ring loads, distant unloads.
+    void setRenderDistance(int distance) noexcept { m_renderDistance = distance; }
     [[nodiscard]] std::size_t loadedChunkCount() const noexcept { return m_chunks.size(); }
     [[nodiscard]] const TerrainGenerator& generator() const noexcept { return m_generator; }
 

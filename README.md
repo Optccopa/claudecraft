@@ -28,6 +28,8 @@ If your MSVC version differs, update `compilerPath` in `.vscode/c_cpp_properties
 
 The game opens on a main menu with a randomly seeded terrain fly-over in the background. Play leads to the worlds screen: type a name and CREATE a new world (random seed), or load an existing one from the list. Pause quits back to the menu. The window title shows the world, FPS, position, and loaded/drawn chunk counts.
 
+Settings (from the main menu or pause) has VIDEO (render distance, FOV, vsync, fullscreen) and CONTROLS (mouse sensitivity, invert Y) categories; values apply immediately and persist to `settings.txt`.
+
 ## Architecture
 
 ```

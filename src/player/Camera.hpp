@@ -10,6 +10,7 @@ public:
     Camera(float fovDeg, float aspect, float nearZ, float farZ) noexcept;
 
     void setAspect(float aspect) noexcept { m_aspect = aspect; }
+    void setFov(float fovDeg) noexcept { m_fovDeg = fovDeg; }
 
     [[nodiscard]] glm::mat4 projection() const noexcept;
     [[nodiscard]] static glm::mat4 view(const glm::vec3& eye, float yawDeg,

@@ -34,13 +34,24 @@ Dependency rules (enforced by review, not tooling):
 |---|---|---|---|---|
 | `Menu`/Main | menu world (random seed, distance 8) | none | free | title + PLAY/QUIT |
 | `Menu`/Worlds | menu world | none | free | name field + CREATE + world list + BACK |
-| `Playing` | selected world (distance 12) | fixed 60 Hz | captured | crosshair + hotbar |
-| `Paused` | selected world (streaming only) | frozen | free | overlay + RESUME/QUIT TO MENU |
+| `Playing` | selected world (settings distance) | fixed 60 Hz | captured | crosshair + hotbar |
+| `Paused` | selected world (streaming only) | frozen | free | overlay + RESUME/SETTINGS/QUIT TO MENU |
+| `Settings` | backdrop of wherever it was opened from | frozen | free | category tabs + value rows + BACK |
 
 ESC transitions are handled once at the top of the frame, *before* the state
 runs — a single press must not be consumed by two states in one frame (pause
-then instantly resume). ESC walks back one level: Worlds → Main → quit;
-Playing ⇄ Paused. Keep any new global hotkeys in that same block.
+then instantly resume). ESC walks back one level: Settings → where it was
+opened from; Worlds → Main → quit; Playing ⇄ Paused. Keep any new global
+hotkeys in that same block.
+
+`Settings` is reachable from both the main menu and pause; `m_settingsFrom`
+remembers the return state and picks the backdrop (panning menu world vs the
+frozen game world). Values are defined in `app/Settings` (persisted to
+`settings.txt`, clamped on load, saved on leaving the screen) and applied
+live when clicked: render distance restreams the loaded world, FOV updates
+the camera, vsync/fullscreen go straight to GLFW, sensitivity/invert-Y feed
+the look-input path. A new setting needs: a `Settings` field + load/save
+line, a `settingRow` in `updateSettings`, and its live-apply call.
 
 World identity comes from `world/WorldList`: the Worlds screen lists
 `saves/` (newest first) and creates named worlds with a random seed

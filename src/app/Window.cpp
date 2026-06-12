@@ -85,4 +85,29 @@ void Window::setCursorCaptured(bool captured) noexcept {
     glfwSetInputMode(m_window, GLFW_CURSOR, captured ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
 }
 
+void Window::setVsync(bool on) noexcept {
+    m_vsync = on;
+    glfwSwapInterval(on ? 1 : 0);
+}
+
+void Window::setFullscreen(bool fullscreen) noexcept {
+    if (fullscreen == m_fullscreen) {
+        return;
+    }
+    m_fullscreen = fullscreen;
+    if (fullscreen) {
+        glfwGetWindowPos(m_window, &m_windowedPos.x, &m_windowedPos.y);
+        glfwGetWindowSize(m_window, &m_windowedSize.x, &m_windowedSize.y);
+        GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+        const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+        glfwSetWindowMonitor(m_window, monitor, 0, 0, mode->width, mode->height,
+                             mode->refreshRate);
+    } else {
+        glfwSetWindowMonitor(m_window, nullptr, m_windowedPos.x, m_windowedPos.y,
+                             m_windowedSize.x, m_windowedSize.y, 0);
+    }
+    // Mode switches can reset the swap interval on some drivers.
+    glfwSwapInterval(m_vsync ? 1 : 0);
+}
+
 } // namespace cc

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "app/Settings.hpp"
 #include "app/Window.hpp"
 #include "core/ThreadPool.hpp"
 #include "input/Input.hpp"
@@ -30,18 +31,26 @@ public:
     void run();
 
 private:
-    enum class GameState { Menu, Playing, Paused };
+    enum class GameState { Menu, Playing, Paused, Settings };
     enum class MenuScreen { Main, Worlds };
+    enum class SettingsCategory { Video, Controls };
 
     void enterMenu();
     void startGame(const WorldInfo& info);
     void setPaused(bool paused);
+    void enterSettings(GameState from);
+    void leaveSettings();
 
     void updateMenu(float frameDt, const glm::ivec2& fbSize);
+    void updateMenuBackdrop(float frameDt, const glm::ivec2& fbSize);
     void drawMainScreen(const glm::ivec2& fbSize);
     void drawWorldsScreen(const glm::ivec2& fbSize);
     void updatePlaying(float frameDt, const glm::ivec2& fbSize, double& accumulator);
     void updatePaused(const glm::ivec2& fbSize);
+    void updateSettings(float frameDt, const glm::ivec2& fbSize);
+    // One settings line: right-aligned label, clickable value button.
+    [[nodiscard]] bool settingRow(const glm::ivec2& fbSize, float bottomY, std::string_view label,
+                                  std::string_view value);
 
     void handleGameplayInput(float frameDt, const RaycastHit& target);
     void drawDebugOverlay(const glm::ivec2& fbSize, const RaycastHit& target);
@@ -50,14 +59,14 @@ private:
 
     // Immediate-mode button: draws into the HUD batch and reports a click.
     [[nodiscard]] bool button(const glm::ivec2& fbSize, float centerX, float bottomY,
-                              std::string_view label);
+                              std::string_view label, float width = 280.0f);
     [[nodiscard]] glm::vec2 mouseUiPosition(const glm::ivec2& fbSize) const noexcept;
 
     void updateTitle(double now);
 
-    static constexpr int kRenderDistance = 12;
     static constexpr int kMenuRenderDistance = 8;
 
+    Settings m_settings; // loaded before the members below consume it
     Window m_window;
     Input m_input;
     Renderer m_renderer;
@@ -70,6 +79,8 @@ private:
 
     GameState m_state = GameState::Menu;
     MenuScreen m_menuScreen = MenuScreen::Main;
+    GameState m_settingsFrom = GameState::Menu;
+    SettingsCategory m_settingsCategory = SettingsCategory::Video;
     glm::vec3 m_menuEye{0.0f};
     double m_menuTime = 0.0;
 

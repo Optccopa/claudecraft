@@ -29,9 +29,15 @@ public:
     void swapBuffers() noexcept;
     void setTitle(const std::string& title) noexcept;
     void setCursorCaptured(bool captured) noexcept;
+    void setVsync(bool on) noexcept;
+    void setFullscreen(bool fullscreen) noexcept;
 
 private:
     GLFWwindow* m_window = nullptr;
+    glm::ivec2 m_windowedPos{100, 100};
+    glm::ivec2 m_windowedSize{1600, 900};
+    bool m_fullscreen = false;
+    bool m_vsync = false;
 };
 
 } // namespace cc
