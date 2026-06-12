@@ -4,8 +4,27 @@ Two 0..15 light channels per cell, packed into one byte per block in `Chunk`
 (`sky | block << 4`): sky light falls from the open sky, block light comes
 from emissive blocks (glowstone = 15, `BlockInfo::emission`). The fragment
 result is `max(sky · uSkyLight · sunShading, block)` with a 0.03 floor —
-caves bottom out near-black, glowstone lights them, and the sky channel has
-a global scale ready for day/night.
+caves bottom out near-black, glowstone lights them, and the day/night cycle
+scales the whole sky channel through `uSkyLight`.
+
+## Day/night cycle
+
+World time is a [0,1) day fraction (0 sunrise, 0.25 noon, 0.5 sunset, 0.75
+midnight), one full day per 10 real minutes. It advances only in the Playing
+state, persists per world in `world.meta` v2, and the menu backdrop pins a
+fixed late-morning time. `render/Sky::skyStateAt` derives everything frame
+by frame — no stored state beyond the time fraction:
+
+- sun direction orbits with elevation `sin(2π·t)`; the shader's diffuse term
+  follows it, so faces relight as the sun moves without any remeshing,
+- `skyLight` ramps `smoothstep(-0.06, 0.25, elevation)` from a 0.12
+  moonlight floor to 1.0 — dawn light precedes the sunrise and midday is
+  stable full bright,
+- sky/fog colour blends night → day with a horizon glow that peaks as the
+  sun crosses the horizon (squared falloff on |elevation|).
+
+Stored light values never change with time of day; only the global scale
+does. That's the entire reason the sky/block split exists as two channels.
 
 ## Propagation rules
 

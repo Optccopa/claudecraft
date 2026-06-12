@@ -92,6 +92,7 @@ void Renderer::render(const FrameParams& params) {
     m_chunkShader.setFloat("uFogStart", params.fogStart);
     m_chunkShader.setFloat("uFogEnd", params.fogEnd);
     m_chunkShader.setFloat("uSkyLight", params.skyLight);
+    m_chunkShader.setVec3("uSunDir", params.sunDirection);
     m_chunkShader.setInt("uAtlas", 0);
     m_atlas.bind(0);
 

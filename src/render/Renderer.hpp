@@ -29,6 +29,7 @@ public:
         glm::mat4 viewProj;
         glm::vec3 cameraPos;
         glm::vec3 fogColor;
+        glm::vec3 sunDirection;
         float fogStart;
         float fogEnd;
         float skyLight; // 0..1 scale on the sky light channel

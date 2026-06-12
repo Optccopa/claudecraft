@@ -8,6 +8,7 @@
 #include "player/Player.hpp"
 #include "render/Hud.hpp"
 #include "render/Renderer.hpp"
+#include "render/Sky.hpp"
 #include "world/Block.hpp"
 #include "world/Raycast.hpp"
 #include "world/World.hpp"
@@ -55,7 +56,9 @@ private:
     void handleGameplayInput(float frameDt, const RaycastHit& target);
     void drawDebugOverlay(const glm::ivec2& fbSize, const RaycastHit& target);
     void renderWorld(World& world, const glm::ivec2& fbSize, const glm::vec3& eye, float yawDeg,
-                     float pitchDeg, float fogEnd, const std::optional<glm::ivec3>& highlight);
+                     float pitchDeg, float fogEnd, const SkyState& sky,
+                     const std::optional<glm::ivec3>& highlight);
+    void saveWorldMeta();
 
     // Immediate-mode button: draws into the HUD batch and reports a click.
     [[nodiscard]] bool button(const glm::ivec2& fbSize, float centerX, float bottomY,
@@ -81,6 +84,7 @@ private:
     MenuScreen m_menuScreen = MenuScreen::Main;
     GameState m_settingsFrom = GameState::Menu;
     SettingsCategory m_settingsCategory = SettingsCategory::Video;
+    double m_worldTime = 0.05; // day fraction; advances only while Playing
     glm::vec3 m_menuEye{0.0f};
     double m_menuTime = 0.0;
 

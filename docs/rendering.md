@@ -30,7 +30,13 @@ the packed `data` bitfield and the `fract()` atlas trick). Uniforms:
 | `uCameraPos` | fog distance reference |
 | `uFogStart/uFogEnd` | `fogEnd = renderDistance·16 − 8`, start = 0.65·end |
 | `uSkyLight` | 0..1 scale on the vertex sky-light channel (`FrameParams::skyLight`) |
+| `uSunDir` | unit sun direction from `render/Sky` (`FrameParams::sunDirection`) |
 | `uAlpha` | 1.0 opaque pass, 0.65 water pass |
+
+Sky colour, sun direction and the sky-light scale all come from one
+`skyStateAt(timeOfDay)` call (see the day/night section of
+[lighting.md](lighting.md)); the clear colour and fog track it so distant
+geometry keeps vanishing into the sky at night.
 
 Per-vertex light comes baked from the mesher (two 4-bit channels, see
 [lighting.md](lighting.md)). The vertex shader computes

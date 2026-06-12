@@ -9,6 +9,7 @@ uniform mat4 uViewProj;
 uniform vec3 uChunkOrigin;
 uniform vec3 uCameraPos;
 uniform float uSkyLight; // day/night scale applied to the sky channel
+uniform vec3 uSunDir;
 
 out vec2 vUv;
 flat out uint vTile;
@@ -23,8 +24,6 @@ const vec3 kNormals[6] = vec3[6](
 // Baked AO curve: darker steps are non-linear so single-occluder corners stay subtle.
 const float kAoCurve[4] = float[4](0.45, 0.65, 0.85, 1.0);
 
-const vec3 kSunDir = normalize(vec3(0.5, 1.0, 0.3));
-
 void main() {
     vec3 worldPos = uChunkOrigin + aPos;
     gl_Position = uViewProj * vec4(worldPos, 1.0);
@@ -37,7 +36,7 @@ void main() {
 
     // Sun shading only applies to sky-lit surfaces: caves stay flat-dark and
     // glowstone-lit faces ignore the sun direction entirely.
-    float diffuse = max(dot(normal, kSunDir), 0.0);
+    float diffuse = max(dot(normal, uSunDir), 0.0);
     float skyContrib = sky * uSkyLight * (0.45 + 0.55 * diffuse);
     float light = max(max(skyContrib, blockLight), 0.03);
     vLight = light * ao;

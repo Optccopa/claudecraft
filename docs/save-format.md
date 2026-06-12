@@ -3,12 +3,16 @@
 ## World directories
 
 Each world is a directory `saves/<name>/` containing a `world.meta` plus one
-chunk file per modified chunk. `world.meta` is two text lines:
+chunk file per modified chunk. `world.meta` is line-oriented text, version 2:
 
 ```
-claudecraft-world 1
+claudecraft-world 2
 <seed>
+<timeOfDay>          (day fraction 0..1; v1 files omit it, defaulting 0.05)
 ```
+
+Readers accept v1 and v2; writers emit v2. The meta is rewritten on quit (it
+carries the world clock), not on every save.
 
 `worldlist::list` scans `saves/` for directories with a parseable meta;
 legacy pre-meta directories named `world_<seed>` are recognised by name.

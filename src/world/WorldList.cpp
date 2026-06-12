@@ -12,18 +12,36 @@ namespace cc::worldlist {
 namespace {
 
 constexpr std::string_view kMetaFile = "world.meta";
-constexpr std::string_view kMetaHeader = "claudecraft-world 1";
+// v1: seed only. v2 appends time of day. Readers accept both so v1 worlds
+// open seamlessly; writers always emit v2.
+constexpr std::string_view kMetaHeaderV1 = "claudecraft-world 1";
+constexpr std::string_view kMetaHeaderV2 = "claudecraft-world 2";
 
-[[nodiscard]] bool readMeta(const std::filesystem::path& dir, std::uint32_t& seedOut) {
+[[nodiscard]] bool readMeta(const std::filesystem::path& dir, std::uint32_t& seedOut,
+                            double& timeOut) {
     std::ifstream file(dir / kMetaFile);
     std::string header;
     std::string seedLine;
-    if (!std::getline(file, header) || header != kMetaHeader || !std::getline(file, seedLine)) {
+    if (!std::getline(file, header) || (header != kMetaHeaderV1 && header != kMetaHeaderV2) ||
+        !std::getline(file, seedLine)) {
         return false;
     }
     const auto result =
         std::from_chars(seedLine.data(), seedLine.data() + seedLine.size(), seedOut);
-    return result.ec == std::errc{} && result.ptr == seedLine.data() + seedLine.size();
+    if (result.ec != std::errc{} || result.ptr != seedLine.data() + seedLine.size()) {
+        return false;
+    }
+    if (header == kMetaHeaderV2) {
+        std::string timeLine;
+        if (std::getline(file, timeLine)) {
+            const auto timeResult =
+                std::from_chars(timeLine.data(), timeLine.data() + timeLine.size(), timeOut);
+            if (timeResult.ec != std::errc{}) {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 // Pre-meta saves were named world_<seed>; recover the seed from the name.
@@ -64,10 +82,12 @@ std::vector<WorldInfo> list(const std::filesystem::path& savesRoot) {
         }
         const std::string name = entry.path().filename().string();
         std::uint32_t seed = 0;
-        if (!readMeta(entry.path(), seed) && !parseLegacyName(name, seed)) {
+        double timeOfDay = 0.05;
+        if (!readMeta(entry.path(), seed, timeOfDay) && !parseLegacyName(name, seed)) {
             continue;
         }
-        found.emplace_back(entry.last_write_time(ec), WorldInfo{name, seed, entry.path()});
+        found.emplace_back(entry.last_write_time(ec),
+                           WorldInfo{name, seed, timeOfDay, entry.path()});
     }
     std::sort(found.begin(), found.end(),
               [](const auto& a, const auto& b) { return a.first > b.first; });
@@ -89,14 +109,19 @@ WorldInfo create(const std::filesystem::path& savesRoot, std::string_view name,
     }
 
     const std::filesystem::path dir = savesRoot / dirName;
+    const WorldInfo info{dirName, seed, 0.05, dir};
     std::filesystem::create_directories(dir);
-    std::ofstream meta(dir / kMetaFile, std::ios::trunc);
-    meta << kMetaHeader << '\n' << seed << '\n';
-    if (!meta) {
-        logError(std::format("failed to write world.meta for '{}'", dirName));
-    }
+    saveMeta(info);
     logInfo(std::format("created world '{}' (seed {})", dirName, seed));
-    return WorldInfo{dirName, seed, dir};
+    return info;
+}
+
+void saveMeta(const WorldInfo& info) {
+    std::ofstream meta(info.directory / kMetaFile, std::ios::trunc);
+    meta << kMetaHeaderV2 << '\n' << info.seed << '\n' << info.timeOfDay << '\n';
+    if (!meta) {
+        logError(std::format("failed to write world.meta for '{}'", info.name));
+    }
 }
 
 } // namespace cc::worldlist

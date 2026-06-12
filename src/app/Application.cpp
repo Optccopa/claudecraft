@@ -19,7 +19,8 @@ constexpr double kFixedDt = 1.0 / 60.0;
 constexpr float kReachDistance = 5.5f;
 constexpr float kEditRepeatDelay = 0.22f;
 constexpr float kMouseSensitivity = 0.09f;
-constexpr glm::vec3 kSkyColor{0.55f, 0.74f, 0.95f};
+constexpr double kDayLengthSeconds = 600.0;
+constexpr double kMenuTimeOfDay = 0.18; // fixed late morning for the backdrop
 
 constexpr float kButtonWidth = 280.0f;
 constexpr float kButtonHeight = 52.0f;
@@ -91,6 +92,7 @@ Application::Application()
 // distance, a save path that is never written (the world is never modified)
 // and that the world list ignores.
 void Application::enterMenu() {
+    saveWorldMeta();
     m_world.reset(); // saves modified chunks before the meshes go
     m_renderer.clearChunkMeshes();
 
@@ -114,6 +116,7 @@ void Application::startGame(const WorldInfo& info) {
     const float spawnY = static_cast<float>(m_world->generator().surfaceHeight(8, 8)) + 2.5f;
     m_player = Player{glm::vec3{8.5f, spawnY, 8.5f}};
     m_currentWorld = info;
+    m_worldTime = info.timeOfDay;
 
     m_state = GameState::Playing;
     m_window.setCursorCaptured(true);
@@ -176,7 +179,7 @@ bool Application::button(const glm::ivec2& fbSize, float centerX, float bottomY,
 }
 
 void Application::renderWorld(World& world, const glm::ivec2& fbSize, const glm::vec3& eye,
-                              float yawDeg, float pitchDeg, float fogEnd,
+                              float yawDeg, float pitchDeg, float fogEnd, const SkyState& sky,
                               const std::optional<glm::ivec3>& highlight) {
     WorldUpdate update = world.update(eye);
     for (MeshUpload& upload : update.uploads) {
@@ -188,8 +191,15 @@ void Application::renderWorld(World& world, const glm::ivec2& fbSize, const glm:
 
     m_camera.setAspect(static_cast<float>(fbSize.x) / static_cast<float>(fbSize.y));
     const glm::mat4 viewProj = m_camera.projection() * Camera::view(eye, yawDeg, pitchDeg);
-    m_renderer.render(Renderer::FrameParams{viewProj, eye, kSkyColor, fogEnd * 0.65f, fogEnd,
-                                            1.0f, highlight});
+    m_renderer.render(Renderer::FrameParams{viewProj, eye, sky.skyColor, sky.sunDirection,
+                                            fogEnd * 0.65f, fogEnd, sky.skyLight, highlight});
+}
+
+void Application::saveWorldMeta() {
+    if (m_world != nullptr && !m_currentWorld.name.empty()) {
+        m_currentWorld.timeOfDay = m_worldTime;
+        worldlist::saveMeta(m_currentWorld);
+    }
 }
 
 void Application::handleGameplayInput(float frameDt, const RaycastHit& target) {
@@ -260,7 +270,7 @@ void Application::updateMenuBackdrop(float frameDt, const glm::ivec2& fbSize) {
     m_menuEye.y += (targetY - m_menuEye.y) * std::min(frameDt * 0.8f, 1.0f);
 
     renderWorld(*m_menuWorld, fbSize, m_menuEye, yaw, -18.0f, fogEndFor(kMenuRenderDistance),
-                std::nullopt);
+                skyStateAt(kMenuTimeOfDay), std::nullopt);
 }
 
 void Application::updateMenu(float frameDt, const glm::ivec2& fbSize) {
@@ -356,6 +366,8 @@ void Application::drawWorldsScreen(const glm::ivec2& fbSize) {
 }
 
 void Application::updatePlaying(float frameDt, const glm::ivec2& fbSize, double& accumulator) {
+    m_worldTime = std::fmod(m_worldTime + frameDt / kDayLengthSeconds, 1.0);
+
     const glm::vec3 eye = m_player.eyePosition(1.0f);
     const RaycastHit target = raycast(
         *m_world, eye, Camera::direction(m_player.yaw(), m_player.pitch()), kReachDistance);
@@ -370,7 +382,7 @@ void Application::updatePlaying(float frameDt, const glm::ivec2& fbSize, double&
 
     const float alpha = static_cast<float>(accumulator / kFixedDt);
     renderWorld(*m_world, fbSize, m_player.eyePosition(alpha), m_player.yaw(), m_player.pitch(),
-                fogEndFor(m_settings.renderDistance),
+                fogEndFor(m_settings.renderDistance), skyStateAt(m_worldTime),
                 target.hit ? std::optional<glm::ivec3>{target.block} : std::nullopt);
 
     m_hud.crosshair(fbSize);
@@ -411,10 +423,17 @@ void Application::drawDebugOverlay(const glm::ivec2& fbSize, const RaycastHit& t
     const std::uint8_t targetLight =
         target.hit ? m_world->lightPackedAt(target.previous) : 0;
 
-    const std::array<std::string, 10> lines{
+    // Clock maps sunrise (day fraction 0) to 06:00.
+    const double dayHours = std::fmod(m_worldTime * 24.0 + 6.0, 24.0);
+    const int clockHour = static_cast<int>(dayHours);
+    const int clockMinute = static_cast<int>((dayHours - clockHour) * 60.0);
+
+    const std::array<std::string, 11> lines{
         std::format("claudecraft {} | {:.0f} fps ({:.2f} ms)", kDebugBuild ? "debug" : "release",
                     m_smoothedFps, m_smoothedFps > 0.0 ? 1000.0 / m_smoothedFps : 0.0),
-        std::format("World: {}' Seed: {}", m_currentWorld.name, m_currentWorld.seed),
+        std::format("World: {} Seed: {}", m_currentWorld.name, m_currentWorld.seed),
+        std::format("time: {:02}:{:02} (day fraction {:.3f})", clockHour, clockMinute,
+                    m_worldTime),
         std::format("xyz: {:.2f} / {:.2f} / {:.2f}", pos.x, pos.y, pos.z),
         std::format("chunk: {} {}  local: {} {}", chunk.x, chunk.z,
                     static_cast<int>(std::floor(pos.x)) & 15,
@@ -446,9 +465,9 @@ void Application::drawDebugOverlay(const glm::ivec2& fbSize, const RaycastHit& t
 
 void Application::updatePaused(const glm::ivec2& fbSize) {
     // World keeps streaming (mesh uploads finish) but the simulation is
-    // frozen: no physics steps, no look, no edits.
+    // frozen: no physics steps, no look, no edits, no time advance.
     renderWorld(*m_world, fbSize, m_player.eyePosition(1.0f), m_player.yaw(), m_player.pitch(),
-                fogEndFor(m_settings.renderDistance), std::nullopt);
+                fogEndFor(m_settings.renderDistance), skyStateAt(m_worldTime), std::nullopt);
 
     const auto width = static_cast<float>(fbSize.x);
     const auto height = static_cast<float>(fbSize.y);
@@ -489,7 +508,8 @@ bool Application::settingRow(const glm::ivec2& fbSize, float bottomY, std::strin
 void Application::updateSettings(float frameDt, const glm::ivec2& fbSize) {
     if (m_settingsFrom == GameState::Paused) {
         renderWorld(*m_world, fbSize, m_player.eyePosition(1.0f), m_player.yaw(),
-                    m_player.pitch(), fogEndFor(m_settings.renderDistance), std::nullopt);
+                    m_player.pitch(), fogEndFor(m_settings.renderDistance),
+                    skyStateAt(m_worldTime), std::nullopt);
     } else {
         updateMenuBackdrop(frameDt, fbSize);
     }
@@ -651,6 +671,7 @@ void Application::run() {
 
     if (m_world != nullptr) {
         logInfo("window closed; saving world");
+        saveWorldMeta();
         m_world->saveModified();
     }
 }
