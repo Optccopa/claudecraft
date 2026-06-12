@@ -33,6 +33,7 @@ struct MeshInput {
 
     ChunkCoord coord;
     std::uint32_t revision = 0;
+    bool smoothLighting = true;        // off: flat per-face light, no AO
     std::vector<BlockType> blocks;     // PaddedX * PaddedZ * SizeY
     std::vector<std::uint8_t> light;   // same layout, packed sky | block << 4
 

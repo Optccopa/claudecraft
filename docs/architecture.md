@@ -49,9 +49,17 @@ remembers the return state and picks the backdrop (panning menu world vs the
 frozen game world). Values are defined in `app/Settings` (persisted to
 `settings.txt`, clamped on load, saved on leaving the screen) and applied
 live when clicked: render distance restreams the loaded world, FOV updates
-the camera, vsync/fullscreen go straight to GLFW, sensitivity/invert-Y feed
+the camera, vsync/fullscreen go straight to GLFW, smooth lighting remeshes
+every loaded chunk (`World::setSmoothLighting`), sensitivity/invert-Y feed
 the look-input path. A new setting needs: a `Settings` field + load/save
 line, a `settingRow` in `updateSettings`, and its live-apply call.
+
+Every gameplay key is rebindable: `Keybinds` (in `app/Settings`) maps the
+eight actions to GLFW key codes, persisted as `key.<action>` lines. The
+CONTROLS tab shows one row per action; clicking enters capture mode and the
+next pressed key binds (ESC cancels the capture before it closes the
+screen). Gameplay input reads only `m_settings.keys` — never raw key
+constants — so new actions must go through the same table.
 
 World identity comes from `world/WorldList`: the Worlds screen lists
 `saves/` (newest first) and creates named worlds with a random seed

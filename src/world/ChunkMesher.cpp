@@ -158,6 +158,18 @@ void meshDirection(const MeshInput& input, const FaceBasis& face, ChunkMeshData&
                 }
 
                 cell.block = block;
+
+                // Flat lighting: every corner takes the face cell's light and
+                // full AO — cheaper, merges better, and the classic look.
+                if (!input.smoothLighting) {
+                    const std::uint8_t l =
+                        input.lightAt(p[0] + normal[0], p[1] + normal[1], p[2] + normal[2]);
+                    cell.sky.fill(Chunk::skyLevel(l));
+                    cell.blockLight.fill(Chunk::blockLevel(l));
+                    cell.ao = 0xFF;
+                    continue;
+                }
+
                 std::uint8_t aoBits = 0;
                 for (int corner = 0; corner < 4; ++corner) {
                     const int du = (corner & 1) ? 1 : -1;

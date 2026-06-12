@@ -25,6 +25,7 @@ void Input::beginFrame() noexcept {
     m_buttonPressed.fill(false);
     m_mouseDelta = glm::vec2{0.0f};
     m_typed.clear();
+    m_lastKeyPressed = -1;
     m_scroll = 0.0f;
 }
 
@@ -55,6 +56,9 @@ void Input::onKey(GLFWwindow* window, int key, int scancode, int action, int mod
     if (action == GLFW_PRESS || action == GLFW_REPEAT) {
         input.m_keyDown[static_cast<std::size_t>(key)] = true;
         input.m_keyPressed[static_cast<std::size_t>(key)] = true;
+        if (action == GLFW_PRESS && input.m_lastKeyPressed == -1) {
+            input.m_lastKeyPressed = key;
+        }
     } else if (action == GLFW_RELEASE) {
         input.m_keyDown[static_cast<std::size_t>(key)] = false;
     }

@@ -42,6 +42,21 @@ constexpr std::array<BlockType, Inventory::HotbarSize> kCreativePalette{
     BlockType::Sand,  BlockType::Wood,  BlockType::Leaves,
     BlockType::Plank, BlockType::Snow,  BlockType::Glowstone};
 
+struct BindRow {
+    const char* label;
+    int Keybinds::* member;
+};
+constexpr std::array<BindRow, 8> kBindRows{{
+    {"FORWARD", &Keybinds::forward},
+    {"BACK", &Keybinds::back},
+    {"LEFT", &Keybinds::left},
+    {"RIGHT", &Keybinds::right},
+    {"JUMP", &Keybinds::jump},
+    {"DESCEND", &Keybinds::descend},
+    {"FLY", &Keybinds::fly},
+    {"INVENTORY", &Keybinds::inventory},
+}};
+
 // Grass crumbles to dirt; everything else drops itself.
 [[nodiscard]] BlockType dropTypeFor(BlockType broken) noexcept {
     return broken == BlockType::Grass ? BlockType::Dirt : broken;
@@ -115,6 +130,7 @@ void Application::enterMenu() {
     const std::uint32_t menuSeed = randomSeed();
     m_menuWorld = std::make_unique<World>(menuSeed, kMenuRenderDistance, m_pool,
                                           std::filesystem::path(kSavesRoot) / ".menu");
+    m_menuWorld->setSmoothLighting(m_settings.smoothLighting);
     m_menuEye = glm::vec3{
         0.0f, static_cast<float>(m_menuWorld->generator().surfaceHeight(0, 0)) + kMenuCamHeight,
         0.0f};
@@ -129,6 +145,7 @@ void Application::startGame(const WorldInfo& info) {
 
     m_world = std::make_unique<World>(info.seed, m_settings.renderDistance, m_pool,
                                       info.directory);
+    m_world->setSmoothLighting(m_settings.smoothLighting);
     const float spawnY = static_cast<float>(m_world->generator().surfaceHeight(8, 8)) + 2.5f;
     m_player = Player{glm::vec3{8.5f, spawnY, 8.5f}};
     m_currentWorld = info;
@@ -158,6 +175,7 @@ void Application::startGame(const WorldInfo& info) {
 void Application::enterSettings(GameState from) {
     m_settingsFrom = from;
     m_settingsCategory = SettingsCategory::Video;
+    m_rebinding = -1;
     m_state = GameState::Settings;
 }
 
@@ -244,7 +262,8 @@ void Application::handleGameplayInput(float frameDt, const RaycastHit& target) {
         m_showDebug = !m_showDebug;
     }
     const bool survival = m_currentWorld.mode == GameMode::Survival;
-    if (m_input.wasPressed(GLFW_KEY_E)) {
+    const Keybinds& keys = m_settings.keys;
+    if (m_input.wasPressed(keys.inventory)) {
         setInventoryOpen(!m_inventoryOpen);
     }
     if (m_inventoryOpen) {
@@ -253,7 +272,7 @@ void Application::handleGameplayInput(float frameDt, const RaycastHit& target) {
         return;
     }
 
-    if (m_input.wasPressed(GLFW_KEY_F) && !survival) {
+    if (m_input.wasPressed(keys.fly) && !survival) {
         m_player.toggleFly();
     }
 
@@ -261,12 +280,12 @@ void Application::handleGameplayInput(float frameDt, const RaycastHit& target) {
     m_player.addLook(look.x, m_settings.invertY ? look.y : -look.y);
 
     PlayerInput move;
-    move.move.y = (m_input.isDown(GLFW_KEY_W) ? 1.0f : 0.0f) -
-                  (m_input.isDown(GLFW_KEY_S) ? 1.0f : 0.0f);
-    move.move.x = (m_input.isDown(GLFW_KEY_D) ? 1.0f : 0.0f) -
-                  (m_input.isDown(GLFW_KEY_A) ? 1.0f : 0.0f);
-    move.jump = m_input.isDown(GLFW_KEY_SPACE);
-    move.descend = m_input.isDown(GLFW_KEY_LEFT_SHIFT);
+    move.move.y = (m_input.isDown(keys.forward) ? 1.0f : 0.0f) -
+                  (m_input.isDown(keys.back) ? 1.0f : 0.0f);
+    move.move.x = (m_input.isDown(keys.right) ? 1.0f : 0.0f) -
+                  (m_input.isDown(keys.left) ? 1.0f : 0.0f);
+    move.jump = m_input.isDown(keys.jump);
+    move.descend = m_input.isDown(keys.descend);
     m_player.setInput(move);
 
     for (int key = GLFW_KEY_1; key <= GLFW_KEY_9; ++key) {
@@ -818,7 +837,30 @@ void Application::updateSettings(float frameDt, const glm::ivec2& fbSize) {
             m_settings.fullscreen = !m_settings.fullscreen;
             m_window.setFullscreen(m_settings.fullscreen);
         }
+        rowY -= kRowStep;
+        if (settingRow(fbSize, rowY, "SMOOTH LIGHTING",
+                       m_settings.smoothLighting ? "ON" : "OFF")) {
+            m_settings.smoothLighting = !m_settings.smoothLighting;
+            if (m_world != nullptr) {
+                m_world->setSmoothLighting(m_settings.smoothLighting);
+            }
+            if (m_menuWorld != nullptr) {
+                m_menuWorld->setSmoothLighting(m_settings.smoothLighting);
+            }
+        }
     } else {
+        // Finish a pending rebind with the next pressed key (ESC cancels via
+        // the top-level handler).
+        if (m_rebinding >= 0) {
+            const int pressed = m_input.lastKeyPressed();
+            if (pressed != -1 && pressed != GLFW_KEY_ESCAPE) {
+                m_settings.keys.*kBindRows[static_cast<std::size_t>(m_rebinding)].member =
+                    pressed;
+                m_rebinding = -1;
+            }
+        }
+
+        constexpr float kBindStep = 58.0f;
         if (settingRow(fbSize, rowY, "SENSITIVITY",
                        std::format("{:.0f}%", m_settings.sensitivity * 100.0f))) {
             m_settings.sensitivity += 0.2f;
@@ -826,9 +868,18 @@ void Application::updateSettings(float frameDt, const glm::ivec2& fbSize) {
                 m_settings.sensitivity = 0.2f;
             }
         }
-        rowY -= kRowStep;
+        rowY -= kBindStep;
         if (settingRow(fbSize, rowY, "INVERT Y", m_settings.invertY ? "ON" : "OFF")) {
             m_settings.invertY = !m_settings.invertY;
+        }
+        for (std::size_t i = 0; i < kBindRows.size(); ++i) {
+            rowY -= kBindStep;
+            const bool capturing = m_rebinding == static_cast<int>(i);
+            if (settingRow(fbSize, rowY, kBindRows[i].label,
+                           capturing ? "PRESS A KEY"
+                                     : keyName(m_settings.keys.*kBindRows[i].member))) {
+                m_rebinding = capturing ? -1 : static_cast<int>(i);
+            }
         }
     }
 
@@ -895,7 +946,11 @@ void Application::run() {
                 setPaused(false);
                 break;
             case GameState::Settings:
-                leaveSettings();
+                if (m_rebinding >= 0) {
+                    m_rebinding = -1;
+                } else {
+                    leaveSettings();
+                }
                 break;
             }
         }

@@ -29,6 +29,8 @@ public:
     [[nodiscard]] bool wasPressed(int key) const noexcept;
     // Printable ASCII typed since the last beginFrame (for text fields).
     [[nodiscard]] const std::string& typedText() const noexcept { return m_typed; }
+    // The first key that went down this frame, or -1 (for rebind capture).
+    [[nodiscard]] int lastKeyPressed() const noexcept { return m_lastKeyPressed; }
     [[nodiscard]] bool isMouseDown(int button) const noexcept;
     [[nodiscard]] bool wasMousePressed(int button) const noexcept;
     [[nodiscard]] glm::vec2 mouseDelta() const noexcept { return m_mouseDelta; }
@@ -56,6 +58,7 @@ private:
     glm::vec2 m_mouseDelta{0.0f};
     glm::vec2 m_lastMousePos{0.0f};
     std::string m_typed;
+    int m_lastKeyPressed = -1;
     float m_scroll = 0.0f;
     bool m_firstMouse = true;
 };

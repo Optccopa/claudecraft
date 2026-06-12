@@ -60,7 +60,10 @@ with noisy tiles — revisit only if a directional texture is ever added.
 
 Per-corner light is smoothed (4-cell average) and part of the mask equality —
 see [lighting.md](lighting.md). Quads only merge where AO **and** both light
-channels match at every corner.
+channels match at every corner. With the smooth-lighting setting off,
+corners take the face cell's light with full AO instead — flat shading that
+merges far better (the setting toggles `MeshInput::smoothLighting` and
+remeshes the world).
 
 `data` is consumed via `glVertexAttribIPointer` (integer attribute — a plain
 `glVertexAttribPointer` would convert to float and corrupt the bitfield).

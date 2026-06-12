@@ -90,6 +90,7 @@ private:
     MenuScreen m_menuScreen = MenuScreen::Main;
     GameState m_settingsFrom = GameState::Menu;
     SettingsCategory m_settingsCategory = SettingsCategory::Video;
+    int m_rebinding = -1; // index into the keybind rows while capturing
     double m_worldTime = 0.05; // day fraction; advances only while Playing
     glm::vec3 m_menuEye{0.0f};
     double m_menuTime = 0.0;

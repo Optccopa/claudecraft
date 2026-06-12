@@ -162,10 +162,21 @@ bool World::neighborsLoaded(ChunkCoord coord) const noexcept {
 // Snapshot the chunk plus a one-block border from its eight neighbours.
 // Column-contiguous storage makes this 18x18 column copies, ~84 KB — cheap
 // enough to take on the main thread, and it keeps workers lock-free.
+void World::setSmoothLighting(bool smooth) noexcept {
+    if (smooth == m_smoothLighting) {
+        return;
+    }
+    m_smoothLighting = smooth;
+    for (const auto& [coord, chunk] : m_chunks) {
+        chunk->bumpMeshRevision();
+    }
+}
+
 std::shared_ptr<const MeshInput> World::makeMeshInput(const Chunk& center) const {
     auto input = std::make_shared<MeshInput>();
     input->coord = center.coord();
     input->revision = center.meshRevision();
+    input->smoothLighting = m_smoothLighting;
     const std::size_t cells =
         static_cast<std::size_t>(MeshInput::PaddedX) * MeshInput::PaddedZ * Chunk::SizeY;
     input->blocks.resize(cells);

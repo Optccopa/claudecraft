@@ -1,8 +1,26 @@
 #pragma once
 
 #include <filesystem>
+#include <string_view>
 
 namespace cc {
+
+// GLFW key codes for every rebindable action. Defaults live in Settings.cpp
+// (the only place this header's consumers don't need GLFW).
+struct Keybinds {
+    int forward;
+    int back;
+    int left;
+    int right;
+    int jump;
+    int descend;
+    int fly;
+    int inventory;
+};
+
+[[nodiscard]] Keybinds defaultKeybinds() noexcept;
+// Display name for a key ("W", "SPACE", "LEFT SHIFT", ...).
+[[nodiscard]] std::string_view keyName(int key) noexcept;
 
 // User preferences, persisted as key/value text. Values are clamped to their
 // valid ranges on load so a hand-edited file can't produce broken state.
@@ -11,8 +29,10 @@ struct Settings {
     int fovDeg = 75;         // 60..110
     bool vsync = false;
     bool fullscreen = false;
-    float sensitivity = 1.0f; // mouse look multiplier, 0.2..3.0
+    bool smoothLighting = true; // per-corner AO + light vs flat per-face
+    float sensitivity = 1.0f;   // mouse look multiplier, 0.2..3.0
     bool invertY = false;
+    Keybinds keys = defaultKeybinds();
 
     [[nodiscard]] static Settings load(const std::filesystem::path& path);
     void save(const std::filesystem::path& path) const;
