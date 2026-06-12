@@ -1,8 +1,8 @@
 # claudecraft
 
-A Minecraft-style voxel game in modern C++20. OpenGL 3.3 core via GLFW + GLAD, GLM math, stb_image textures. No engine, no CMake — the build is two `cl.exe` invocations driven by `.vscode/tasks.json`.
-
 ![Title Screen](images/title_screen.png)
+
+A Minecraft-style voxel game in modern C++20. OpenGL 3.3 core via GLFW + GLAD, GLM math, stb_image textures. No engine, no CMake — the build is two `cl.exe` invocations driven by `.vscode/tasks.json`.
 
 ## Setup
 
@@ -14,6 +14,8 @@ A Minecraft-style voxel game in modern C++20. OpenGL 3.3 core via GLFW + GLAD, G
 Output lands in `build/debug/claudecraft.exe` / `build/release/claudecraft.exe`. The exe must run with the project root as working directory (it loads `shaders/`); `launch.json` already sets that.
 
 If your MSVC version differs, update `compilerPath` in `.vscode/c_cpp_properties.json` — the build tasks don't care, they use whatever `cl` is on `PATH`.
+
+![Create World Screen](images/world_creation.png)
 
 ## Controls
 
@@ -81,4 +83,4 @@ Each world lives in `saves/<name>/` with a `world.meta` (format version + seed).
 
 ## Further reading
 
-Subsystem docs live in [docs/](docs/README.md): architecture, build system, threading model, meshing, rendering, and the save format. They are kept in sync with the code (enforced by `CLAUDE.md`).
+Subsystem docs live in [docs/](docs/README.md): architecture, build system, threading model, meshing, rendering, and the save format.
