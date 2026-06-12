@@ -1,0 +1,14 @@
+# Normalize line endings; sources checkout as LF, Windows-only configs as CRLF
+* text=auto
+*.cpp text
+*.hpp text
+*.h text
+*.c text
+*.vert text
+*.frag text
+*.json text
+*.md text
+
+# Vendored binaries
+*.lib binary
+*.png binary
