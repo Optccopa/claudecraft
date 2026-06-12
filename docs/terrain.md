@@ -6,25 +6,49 @@ chunk generation order (see determinism notes at the bottom).
 
 ## Noise instances
 
-Five `Noise` tables, all seeded from the world seed XOR a fixed salt:
+Six `Noise` tables, all seeded from the world seed XOR a fixed salt:
 
 | Field | Use |
 |---|---|
 | `m_heightNoise` | 2D fBm height map |
-| `m_biomeNoise` | 2D low-frequency plains↔mountains blend |
+| `m_biomeNoise` | 2D continental field: mountains high, ocean basins low |
+| `m_moistureNoise` | 2D field splitting lowlands into desert/plains/forest |
 | `m_caveNoiseA/B` | two independent 3D fields for cave carving |
 | `m_oreNoise` | one shared 3D field for all ore types |
 
-## Surface
+## Biomes and surface
+
+One continental value `c = fbm(wx·0.0011, 2 oct)` drives both height
+extremes, so mountains and oceans can never overlap and coastlines pass
+through plains height for free:
 
 ```
-biome   = fbm(wx·0.0011, 2 oct) → smoothstep(0.05, 0.42) = mountainFactor
-height  = lerp(66 + n·5, 84 + n·52, mountainFactor)    n = fbm(wx·0.008, 4 oct)
+mountain = smoothstep(0.05, 0.42, c)
+ocean    = smoothstep(0.16, 0.40, -c)
+height   = lerp(lerp(66 + n·5, 84 + n·52, mountain), 46 + n·5, ocean)
+                                          n = fbm(wx·0.008, 4 oct)
 ```
+
+Classification (`classify`, used by `biomeAt` and generation): ocean if
+`ocean > 0.5`, else mountains if `mountain > 0.5`, else moisture
+`m = fbm(wx·0.0009, 2 oct)` picks desert (`m < −0.22`), forest
+(`m > 0.28`) or plains. Thresholds are the tuning knobs; the smoothstep
+windows control how wide the blend zones are.
+
+Per-biome differences:
+
+| Biome | Surface | Trees per 1000 columns |
+|---|---|---|
+| Plains | grass | 8 |
+| Forest | grass | 55 |
+| Desert | sand top + sand to `h−4` | 0 |
+| Mountains | grass, snow ≥ 108 | 0 |
+| Ocean | sand floor (~y 42–51), water to 62 | 0 |
 
 Sea level 62. Column layering: bedrock at y 0, stone up to `h−4`, dirt (or
-sand) to `h−1`, top block grass / sand (h ≤ 63) / snow (h ≥ 108). Water fills
-(h, 62] where the ground dips below sea level.
+sand) to `h−1`, then the biome top block; beaches stay sand for `h ≤ 63`
+regardless of biome. Water fills (h, 62] where the ground dips below sea
+level.
 
 ## Caves
 
@@ -70,11 +94,11 @@ ore rarer; the depth gate moves where it appears.
 
 ## Trees
 
-Plains only (`mountainFactor < 0.3`), on intact grass, where
-`hash(wx, wz, seed) % 1000 < 8`. Trunk 4–6, two-layer canopy with clipped
-corners. Trees keep a 2-block margin inside the chunk so the canopy never
-crosses a chunk border — the price of order-independent parallel generation
-(no cross-chunk structure writes, no pending-block queues).
+Plains and forest only (densities in the biome table), on intact grass,
+gated by `hash(wx, wz, seed) % 1000`. Trunk 4–6, two-layer canopy with
+clipped corners. Trees keep a 2-block margin inside the chunk so the canopy
+never crosses a chunk border — the price of order-independent parallel
+generation (no cross-chunk structure writes, no pending-block queues).
 
 ## Determinism rules
 

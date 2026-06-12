@@ -17,5 +17,6 @@ saves/
 
 # Claude
 .claude/
+
 # User-local preferences
 settings.txt

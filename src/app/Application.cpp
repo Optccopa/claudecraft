@@ -20,7 +20,7 @@ constexpr float kReachDistance = 5.5f;
 constexpr float kEditRepeatDelay = 0.22f;
 constexpr float kMouseSensitivity = 0.09f;
 constexpr double kDayLengthSeconds = 600.0;
-constexpr double kMenuTimeOfDay = 0.18; // fixed late morning for the backdrop
+constexpr double kMenuTimeOfDay = 0.5; // Claude-colored sunset for menu backdrop
 
 constexpr float kButtonWidth = 280.0f;
 constexpr float kButtonHeight = 52.0f;
