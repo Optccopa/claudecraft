@@ -23,9 +23,13 @@ constexpr glm::vec3 kSkyColor{0.55f, 0.74f, 0.95f};
 constexpr float kButtonWidth = 280.0f;
 constexpr float kButtonHeight = 52.0f;
 constexpr float kButtonTextScale = 3.0f;
+constexpr std::size_t kMaxListedWorlds = 5;
+constexpr std::size_t kMaxNameLength = 24;
 
 constexpr float kMenuPanSpeed = 3.0f;
 constexpr float kMenuCamHeight = 24.0f;
+
+constexpr const char* kSavesRoot = "saves";
 
 #ifdef NDEBUG
 constexpr bool kDebugBuild = false;
@@ -42,6 +46,10 @@ constexpr bool kDebugBuild = true;
     return static_cast<float>(renderDistance * Chunk::SizeX) - 8.0f;
 }
 
+[[nodiscard]] std::uint32_t randomSeed() {
+    return std::random_device{}();
+}
+
 } // namespace
 
 Application::Application()
@@ -55,29 +63,41 @@ Application::Application()
     if (kDebugBuild) {
         gl::enableDebugOutput();
     }
+    logInfo(std::format("{} workers", m_pool.threadCount()));
+    enterMenu();
+}
 
-    // The menu backdrop is a throwaway world with a fresh random seed; the
-    // actual game world (fixed seed, persistent saves) is built on Play.
-    const std::uint32_t menuSeed = std::random_device{}();
-    m_menuWorld = std::make_unique<World>(menuSeed, kMenuRenderDistance, m_pool);
+// The menu backdrop is a throwaway world: fresh random seed, smaller render
+// distance, a save path that is never written (the world is never modified)
+// and that the world list ignores.
+void Application::enterMenu() {
+    m_world.reset(); // saves modified chunks before the meshes go
+    m_renderer.clearChunkMeshes();
+
+    const std::uint32_t menuSeed = randomSeed();
+    m_menuWorld = std::make_unique<World>(menuSeed, kMenuRenderDistance, m_pool,
+                                          std::filesystem::path(kSavesRoot) / ".menu");
     m_menuEye = glm::vec3{
         0.0f, static_cast<float>(m_menuWorld->generator().surfaceHeight(0, 0)) + kMenuCamHeight,
         0.0f};
-    logInfo(std::format("menu seed {} | {} workers", menuSeed, m_pool.threadCount()));
+    m_state = GameState::Menu;
+    m_menuScreen = MenuScreen::Main;
+    m_window.setCursorCaptured(false);
 }
 
-void Application::startGame() {
+void Application::startGame(const WorldInfo& info) {
     m_menuWorld.reset();
     m_renderer.clearChunkMeshes();
 
-    m_world = std::make_unique<World>(kSeed, kRenderDistance, m_pool);
+    m_world = std::make_unique<World>(info.seed, kRenderDistance, m_pool, info.directory);
     const float spawnY = static_cast<float>(m_world->generator().surfaceHeight(8, 8)) + 2.5f;
     m_player = Player{glm::vec3{8.5f, spawnY, 8.5f}};
+    m_currentWorld = info;
 
     m_state = GameState::Playing;
     m_window.setCursorCaptured(true);
     m_input.resetMouseDelta();
-    logInfo(std::format("game world seed {} | render distance {}", kSeed, kRenderDistance));
+    logInfo(std::format("entering world '{}' (seed {})", info.name, info.seed));
 }
 
 void Application::setPaused(bool paused) {
@@ -140,6 +160,9 @@ void Application::renderWorld(World& world, const glm::ivec2& fbSize, const glm:
 void Application::handleGameplayInput(float frameDt, const RaycastHit& target) {
     if (m_input.wasPressed(GLFW_KEY_F)) {
         m_player.toggleFly();
+    }
+    if (m_input.wasPressed(GLFW_KEY_F3)) {
+        m_showDebug = !m_showDebug;
     }
 
     const glm::vec2 look = m_input.mouseDelta() * kMouseSensitivity;
@@ -205,6 +228,14 @@ void Application::updateMenu(float frameDt, const glm::ivec2& fbSize) {
     renderWorld(*m_menuWorld, fbSize, m_menuEye, yaw, -18.0f, fogEndFor(kMenuRenderDistance),
                 std::nullopt);
 
+    if (m_menuScreen == MenuScreen::Main) {
+        drawMainScreen(fbSize);
+    } else {
+        drawWorldsScreen(fbSize);
+    }
+}
+
+void Application::drawMainScreen(const glm::ivec2& fbSize) {
     const auto width = static_cast<float>(fbSize.x);
     const auto height = static_cast<float>(fbSize.y);
     const float titleScale = 9.0f;
@@ -212,11 +243,73 @@ void Application::updateMenu(float frameDt, const glm::ivec2& fbSize) {
     m_hud.text(width * 0.5f - titleW * 0.5f, height * 0.78f, titleScale, "CLAUDECRAFT");
 
     if (button(fbSize, width * 0.5f, height * 0.45f, "PLAY")) {
-        startGame();
+        m_worlds = worldlist::list(kSavesRoot);
+        m_nameField.clear();
+        m_menuScreen = MenuScreen::Worlds;
         return;
     }
     if (button(fbSize, width * 0.5f, height * 0.45f - kButtonHeight - 18.0f, "QUIT")) {
         glfwSetWindowShouldClose(m_window.handle(), GLFW_TRUE);
+    }
+}
+
+void Application::drawWorldsScreen(const glm::ivec2& fbSize) {
+    const auto width = static_cast<float>(fbSize.x);
+    const auto height = static_cast<float>(fbSize.y);
+    const float centerX = width * 0.5f;
+
+    // Name entry: typed characters append, backspace erases (key repeat
+    // included), ENTER creates.
+    for (const char c : m_input.typedText()) {
+        if (m_nameField.size() < kMaxNameLength) {
+            m_nameField.push_back(c);
+        }
+    }
+    if (m_input.wasPressed(GLFW_KEY_BACKSPACE) && !m_nameField.empty()) {
+        m_nameField.pop_back();
+    }
+
+    const float headerScale = 5.0f;
+    const float headerW = Hud::textWidth("CREATE WORLD", headerScale);
+    m_hud.text(centerX - headerW * 0.5f, height * 0.92f, headerScale, "CREATE WORLD");
+
+    const float fieldW = 420.0f;
+    const float fieldH = 46.0f;
+    const float fieldY = height * 0.92f - 90.0f;
+    m_hud.rect(centerX - fieldW * 0.5f, fieldY, fieldW, fieldH, Hud::RectStyle::Dim);
+    const bool cursorOn = std::fmod(m_menuTime, 1.0) < 0.5;
+    const std::string shown =
+        m_nameField.empty() ? std::string{cursorOn ? "|" : ""}
+                            : m_nameField + (cursorOn ? "|" : "");
+    m_hud.text(centerX - fieldW * 0.5f + 12.0f, fieldY + fieldH * 0.5f + 4.0f * 2.5f, 2.5f, shown);
+
+    const bool createClicked =
+        button(fbSize, centerX, fieldY - kButtonHeight - 14.0f, "CREATE") ||
+        m_input.wasPressed(GLFW_KEY_ENTER);
+    if (createClicked) {
+        startGame(worldlist::create(kSavesRoot, m_nameField, randomSeed()));
+        return;
+    }
+
+    float listY = fieldY - 2.0f * (kButtonHeight + 14.0f) - 64.0f;
+    if (!m_worlds.empty()) {
+        const float labelW = Hud::textWidth("LOAD WORLD", 3.5f);
+        m_hud.text(centerX - labelW * 0.5f, listY + kButtonHeight + 44.0f, 3.5f, "LOAD WORLD");
+    }
+    for (std::size_t i = 0; i < m_worlds.size() && i < kMaxListedWorlds; ++i) {
+        std::string label = m_worlds[i].name;
+        if (label.size() > 16) {
+            label.resize(16);
+        }
+        if (button(fbSize, centerX, listY - static_cast<float>(i) * (kButtonHeight + 12.0f),
+                   label)) {
+            startGame(m_worlds[i]);
+            return;
+        }
+    }
+
+    if (button(fbSize, centerX, 24.0f, "BACK")) {
+        m_menuScreen = MenuScreen::Main;
     }
 }
 
@@ -240,6 +333,59 @@ void Application::updatePlaying(float frameDt, const glm::ivec2& fbSize, double&
 
     m_hud.crosshair(fbSize);
     m_hud.hotbar(fbSize, m_selectedSlot, m_hotbar);
+    if (m_showDebug) {
+        drawDebugOverlay(fbSize, target);
+    }
+}
+
+void Application::drawDebugOverlay(const glm::ivec2& fbSize, const RaycastHit& target) {
+    constexpr float kScale = 2.0f;
+    constexpr float kLineHeight = 26.0f;
+    constexpr float kPad = 5.0f;
+
+    const glm::vec3 pos = m_player.position();
+    const glm::vec3 vel = m_player.velocity();
+    const ChunkCoord chunk = World::chunkCoordOf(static_cast<int>(std::floor(pos.x)),
+                                                 static_cast<int>(std::floor(pos.z)));
+
+    // Compass quadrant from yaw; Camera::direction maps yaw 0 to +x (east).
+    const float yaw = m_player.yaw() - 360.0f * std::floor(m_player.yaw() / 360.0f);
+    const char* facing = "east";
+    if (yaw >= 45.0f && yaw < 135.0f) {
+        facing = "south";
+    } else if (yaw >= 135.0f && yaw < 225.0f) {
+        facing = "west";
+    } else if (yaw >= 225.0f && yaw < 315.0f) {
+        facing = "north";
+    }
+
+    const std::array<std::string, 9> lines{
+        std::format("claudecraft {} | {:.0f} fps ({:.2f} ms)", kDebugBuild ? "debug" : "release",
+                    m_smoothedFps, m_smoothedFps > 0.0 ? 1000.0 / m_smoothedFps : 0.0),
+        std::format("world '{}' seed {}", m_currentWorld.name, m_currentWorld.seed),
+        std::format("xyz: {:.2f} / {:.2f} / {:.2f}", pos.x, pos.y, pos.z),
+        std::format("chunk: {} {}  local: {} {}", chunk.x, chunk.z,
+                    static_cast<int>(std::floor(pos.x)) & 15,
+                    static_cast<int>(std::floor(pos.z)) & 15),
+        std::format("facing: {} (yaw {:.1f} / pitch {:.1f})", facing, yaw, m_player.pitch()),
+        std::format("vel: {:.2f} {:.2f} {:.2f}  [{}]", vel.x, vel.y, vel.z,
+                    m_player.flying() ? "flying" : (m_player.onGround() ? "on ground" : "airborne")),
+        target.hit ? std::format("target: {} at {} {} {}", blockName(m_world->blockAt(target.block)),
+                                 target.block.x, target.block.y, target.block.z)
+                   : std::string{"target: none"},
+        std::format("chunks: {} loaded, {} drawn, {} meshes", m_world->loadedChunkCount(),
+                    m_renderer.drawnLastFrame(), m_renderer.meshCount()),
+        std::format("workers: {}", m_pool.threadCount()),
+    };
+
+    float yTop = static_cast<float>(fbSize.y) - 10.0f;
+    for (const std::string& line : lines) {
+        const float width = Hud::textWidth(line, kScale);
+        m_hud.rect(6.0f, yTop - kLineHeight + kPad, width + 2.0f * kPad, kLineHeight,
+                   Hud::RectStyle::Dim);
+        m_hud.text(6.0f + kPad, yTop, kScale, line);
+        yTop -= kLineHeight;
+    }
 }
 
 void Application::updatePaused(const glm::ivec2& fbSize) {
@@ -260,8 +406,12 @@ void Application::updatePaused(const glm::ivec2& fbSize) {
         setPaused(false);
         return;
     }
-    if (button(fbSize, width * 0.5f, height * 0.45f - kButtonHeight - 18.0f, "SAVE AND QUIT")) {
-        glfwSetWindowShouldClose(m_window.handle(), GLFW_TRUE);
+    if (button(fbSize, width * 0.5f, height * 0.45f - kButtonHeight - 18.0f, "QUIT TO MENU")) {
+        enterMenu(); // World destructor saves modified chunks
+        return;
+    }
+    if (m_showDebug) {
+        drawDebugOverlay(fbSize, RaycastHit{});
     }
 }
 
@@ -271,14 +421,16 @@ void Application::updateTitle(double now) {
         return;
     }
     const double fps = m_framesSinceTitle / (now - m_lastTitleUpdate);
+    m_smoothedFps = fps;
     if (m_state == GameState::Menu) {
         m_window.setTitle(std::format("claudecraft | {:.0f} fps | menu", fps));
     } else {
         const glm::vec3 pos = m_player.position();
         m_window.setTitle(std::format(
-            "claudecraft | {:.0f} fps | ({:.1f}, {:.1f}, {:.1f}) | {} chunks, {} drawn{}{}", fps,
-            pos.x, pos.y, pos.z, m_world->loadedChunkCount(), m_renderer.drawnLastFrame(),
-            m_player.flying() ? " | fly" : "", m_state == GameState::Paused ? " | paused" : ""));
+            "claudecraft | {} | {:.0f} fps | ({:.1f}, {:.1f}, {:.1f}) | {} chunks, {} drawn{}{}",
+            m_currentWorld.name, fps, pos.x, pos.y, pos.z, m_world->loadedChunkCount(),
+            m_renderer.drawnLastFrame(), m_player.flying() ? " | fly" : "",
+            m_state == GameState::Paused ? " | paused" : ""));
     }
     m_lastTitleUpdate = now;
     m_framesSinceTitle = 0;
@@ -303,7 +455,11 @@ void Application::run() {
         if (m_input.wasPressed(GLFW_KEY_ESCAPE)) {
             switch (m_state) {
             case GameState::Menu:
-                glfwSetWindowShouldClose(m_window.handle(), GLFW_TRUE);
+                if (m_menuScreen == MenuScreen::Worlds) {
+                    m_menuScreen = MenuScreen::Main;
+                } else {
+                    glfwSetWindowShouldClose(m_window.handle(), GLFW_TRUE);
+                }
                 break;
             case GameState::Playing:
                 setPaused(true);

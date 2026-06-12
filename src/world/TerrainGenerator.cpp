@@ -58,7 +58,12 @@ void plantTree(Chunk& chunk, int lx, int surfaceY, int lz, std::uint32_t hash) {
 } // namespace
 
 TerrainGenerator::TerrainGenerator(std::uint32_t seed)
-    : m_heightNoise{seed}, m_biomeNoise{seed ^ 0x9E3779B9u}, m_seed{seed} {}
+    : m_heightNoise{seed},
+      m_biomeNoise{seed ^ 0x9E3779B9u},
+      m_caveNoiseA{seed ^ 0x85EBCA6Bu},
+      m_caveNoiseB{seed ^ 0xC2B2AE35u},
+      m_oreNoise{seed ^ 0x27D4EB2Fu},
+      m_seed{seed} {}
 
 float TerrainGenerator::mountainFactor(int wx, int wz) const noexcept {
     const float biome = m_biomeNoise.fbm(static_cast<float>(wx) * 0.0011f,
@@ -73,6 +78,51 @@ int TerrainGenerator::surfaceHeight(int wx, int wz) const noexcept {
     const float mountains = 84.0f + n * 52.0f;
     const float h = plains + (mountains - plains) * mountainFactor(wx, wz);
     return std::clamp(static_cast<int>(h), 1, Chunk::SizeY - 16);
+}
+
+// Caves: two independent low-frequency 3D noise fields, carved where both
+// are near zero. Each field's zero set is a 2D surface; intersecting two of
+// them yields 1D winding tunnels ("spaghetti caves") instead of blobs.
+// Ores: one shared 3D field with nested thresholds — rarer ores need higher
+// field values and sit deeper, so veins naturally shell (coal around iron
+// around gold around diamond) without four separate noise lookups.
+void TerrainGenerator::carveAndSeed(BlockType* column, int wx, int wz,
+                                    int surface) const noexcept {
+    const auto x = static_cast<float>(wx);
+    const auto z = static_cast<float>(wz);
+
+    // Don't pierce ocean floors: a carved pocket under a water column has no
+    // fluid simulation to drain it and renders as a floating water ceiling.
+    const int carveTop = (surface <= SeaLevel + 1) ? surface - 4 : surface;
+
+    for (int y = 6; y <= carveTop; ++y) {
+        const BlockType block = column[y];
+        if (block == BlockType::Air || block == BlockType::Water || block == BlockType::Bedrock) {
+            continue;
+        }
+        const auto fy = static_cast<float>(y);
+        const float a = m_caveNoiseA.fbm3(x * 0.030f, fy * 0.045f, z * 0.030f, 2, 2.0f, 0.5f);
+        if (std::abs(a) < 0.085f) {
+            const float b = m_caveNoiseB.fbm3(x * 0.030f, fy * 0.045f, z * 0.030f, 2, 2.0f, 0.5f);
+            if (std::abs(b) < 0.085f) {
+                column[y] = BlockType::Air;
+                continue;
+            }
+        }
+        if (block != BlockType::Stone) {
+            continue;
+        }
+        const float ore = m_oreNoise.fbm3(x * 0.16f, fy * 0.16f, z * 0.16f, 2, 2.0f, 0.5f);
+        if (ore > 0.70f && y < 16) {
+            column[y] = BlockType::DiamondOre;
+        } else if (ore > 0.64f && y < 34) {
+            column[y] = BlockType::GoldOre;
+        } else if (ore > 0.58f && y < 64) {
+            column[y] = BlockType::IronOre;
+        } else if (ore > 0.52f && y < 110) {
+            column[y] = BlockType::CoalOre;
+        }
+    }
 }
 
 std::unique_ptr<Chunk> TerrainGenerator::generate(ChunkCoord coord) const {
@@ -105,6 +155,7 @@ std::unique_ptr<Chunk> TerrainGenerator::generate(ChunkCoord coord) const {
             for (int y = h + 1; y <= SeaLevel; ++y) {
                 col[y] = BlockType::Water;
             }
+            carveAndSeed(col, wx, wz, h);
         }
     }
 

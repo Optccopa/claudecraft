@@ -62,6 +62,12 @@ one call, hover ring drawn behind, click = `wasMousePressed` edge. Cursor
 hit-testing converts window coords → framebuffer coords (y flip + DPI scale)
 in `mouseUiPosition`.
 
+F3 toggles the debug overlay (`Application::drawDebugOverlay`): per-line
+dim-backed text down the top-left with fps/frame time, world + seed,
+position/chunk/facing, velocity + ground state, raycast target, chunk/mesh
+counts, and worker count. It renders through the same HUD batch — adding a
+line is just another `std::format` entry in its `lines` array.
+
 ## Debug output
 
 Debug builds request a GL debug context and install `glDebugMessageCallback`

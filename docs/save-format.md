@@ -1,11 +1,29 @@
 # Save format
 
-Only modified chunks touch disk. Path: `saves/world_<seed>/c_<x>_<z>.bin`
-(chunk coords, may be negative). The directory is created lazily on first
-save, so never-edited worlds — including every menu backdrop — leave nothing
-behind.
+## World directories
 
-## File layout (version 1)
+Each world is a directory `saves/<name>/` containing a `world.meta` plus one
+chunk file per modified chunk. `world.meta` is two text lines:
+
+```
+claudecraft-world 1
+<seed>
+```
+
+`worldlist::list` scans `saves/` for directories with a parseable meta;
+legacy pre-meta directories named `world_<seed>` are recognised by name.
+Anything else (e.g. the menu backdrop's never-written `saves/.menu` path) is
+ignored. Directory names are sanitised display names (`[A-Za-z0-9_-]`,
+spaces → `_`, ≤24 chars) and deduplicated with `_2`, `_3`, … suffixes —
+the name is the world's identity, the seed lives only in the meta.
+
+## Chunk files
+
+Only modified chunks touch disk: `c_<x>_<z>.bin` (chunk coords, may be
+negative). Directories are created lazily on first save, so never-edited
+worlds leave nothing behind.
+
+## Chunk file layout (version 1)
 
 All values little-endian (native x64; no cross-platform ambition).
 
@@ -52,7 +70,9 @@ Adding a new `BlockType` is backward-compatible (ids are append-only —
 **never reorder or remove enum values**, they're serialized as raw u8).
 Removing one is not; that's a version bump plus a remap on load.
 
-The world seed is part of the save identity (it's in the directory name).
-Changing `Application::kSeed` orphans existing saves rather than corrupting
-them — terrain regenerates differently but edited chunks load fine only for
-the matching seed folder.
+Block ids in use: Air 0, Stone 1, Dirt 2, Grass 3, Sand 4, Water 5, Wood 6,
+Leaves 7, Plank 8, Snow 9, Bedrock 10, CoalOre 11, IronOre 12, GoldOre 13,
+DiamondOre 14.
+
+`world.meta` has its own header version (`claudecraft-world 1`), independent
+of the chunk format version — bump it if the meta gains fields.

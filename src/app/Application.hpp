@@ -10,10 +10,13 @@
 #include "world/Block.hpp"
 #include "world/Raycast.hpp"
 #include "world/World.hpp"
+#include "world/WorldList.hpp"
 
 #include <array>
 #include <memory>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace cc {
 
@@ -28,15 +31,20 @@ public:
 
 private:
     enum class GameState { Menu, Playing, Paused };
+    enum class MenuScreen { Main, Worlds };
 
-    void startGame();
+    void enterMenu();
+    void startGame(const WorldInfo& info);
     void setPaused(bool paused);
 
     void updateMenu(float frameDt, const glm::ivec2& fbSize);
+    void drawMainScreen(const glm::ivec2& fbSize);
+    void drawWorldsScreen(const glm::ivec2& fbSize);
     void updatePlaying(float frameDt, const glm::ivec2& fbSize, double& accumulator);
     void updatePaused(const glm::ivec2& fbSize);
 
     void handleGameplayInput(float frameDt, const RaycastHit& target);
+    void drawDebugOverlay(const glm::ivec2& fbSize, const RaycastHit& target);
     void renderWorld(World& world, const glm::ivec2& fbSize, const glm::vec3& eye, float yawDeg,
                      float pitchDeg, float fogEnd, const std::optional<glm::ivec3>& highlight);
 
@@ -47,7 +55,6 @@ private:
 
     void updateTitle(double now);
 
-    static constexpr std::uint32_t kSeed = 1337;
     static constexpr int kRenderDistance = 12;
     static constexpr int kMenuRenderDistance = 8;
 
@@ -62,8 +69,14 @@ private:
     Camera m_camera;
 
     GameState m_state = GameState::Menu;
+    MenuScreen m_menuScreen = MenuScreen::Main;
     glm::vec3 m_menuEye{0.0f};
     double m_menuTime = 0.0;
+
+    std::string m_nameField;
+    std::vector<WorldInfo> m_worlds;
+    WorldInfo m_currentWorld;
+    bool m_showDebug = false;
 
     std::array<BlockType, 8> m_hotbar{BlockType::Stone, BlockType::Dirt,  BlockType::Grass,
                                       BlockType::Sand,  BlockType::Wood,  BlockType::Leaves,
@@ -73,6 +86,7 @@ private:
 
     double m_lastTitleUpdate = 0.0;
     int m_framesSinceTitle = 0;
+    double m_smoothedFps = 0.0;
 };
 
 } // namespace cc

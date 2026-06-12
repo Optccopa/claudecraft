@@ -76,6 +76,24 @@ struct Rgba {
         return shade(238, 242, 245, 1.0f - 0.06f * n);
     case 11: // bedrock
         return shade(70, 70, 70, 1.0f - 0.35f * n);
+    case 12: // coal ore
+    case 13: // iron ore
+    case 14: // gold ore
+    case 15: // diamond ore
+    {
+        // Stone base with 2x2 mineral blotches; sampling the noise at half
+        // resolution clusters single pixels into readable nuggets.
+        const float blob = pixelNoise(px / 2, py / 2, tile * 31);
+        if (blob > 0.78f) {
+            switch (tile) {
+            case 12: return shade(45, 45, 48, 1.0f - 0.15f * n);
+            case 13: return shade(216, 168, 138, 1.0f - 0.15f * n);
+            case 14: return shade(250, 214, 76, 1.0f - 0.15f * n);
+            default: return shade(108, 228, 222, 1.0f - 0.15f * n);
+            }
+        }
+        return shade(128, 128, 128, 1.0f - 0.2f * n);
+    }
     default:
         return Rgba{255, 0, 255, 255}; // unassigned tiles scream magenta
     }

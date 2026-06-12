@@ -38,7 +38,8 @@ struct WorldUpdate {
 // via WorldUpdate for the renderer to upload.
 class World {
 public:
-    World(std::uint32_t seed, int renderDistance, ThreadPool& pool);
+    World(std::uint32_t seed, int renderDistance, ThreadPool& pool,
+          std::filesystem::path saveDirectory);
     ~World();
 
     World(const World&) = delete;

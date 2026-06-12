@@ -27,6 +27,7 @@ public:
     void fixedUpdate(float dt, const World& world);
 
     [[nodiscard]] glm::vec3 position() const noexcept { return m_position; }
+    [[nodiscard]] glm::vec3 velocity() const noexcept { return m_velocity; }
     [[nodiscard]] glm::vec3 eyePosition(float alpha) const noexcept;
     [[nodiscard]] float yaw() const noexcept { return m_yaw; }
     [[nodiscard]] float pitch() const noexcept { return m_pitch; }

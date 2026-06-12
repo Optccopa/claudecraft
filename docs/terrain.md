@@ -1,0 +1,90 @@
+# Terrain generation
+
+`TerrainGenerator` is const after construction and runs on worker threads.
+Everything derives from the world seed — same seed, same world, regardless of
+chunk generation order (see determinism notes at the bottom).
+
+## Noise instances
+
+Five `Noise` tables, all seeded from the world seed XOR a fixed salt:
+
+| Field | Use |
+|---|---|
+| `m_heightNoise` | 2D fBm height map |
+| `m_biomeNoise` | 2D low-frequency plains↔mountains blend |
+| `m_caveNoiseA/B` | two independent 3D fields for cave carving |
+| `m_oreNoise` | one shared 3D field for all ore types |
+
+## Surface
+
+```
+biome   = fbm(wx·0.0011, 2 oct) → smoothstep(0.05, 0.42) = mountainFactor
+height  = lerp(66 + n·5, 84 + n·52, mountainFactor)    n = fbm(wx·0.008, 4 oct)
+```
+
+Sea level 62. Column layering: bedrock at y 0, stone up to `h−4`, dirt (or
+sand) to `h−1`, top block grass / sand (h ≤ 63) / snow (h ≥ 108). Water fills
+(h, 62] where the ground dips below sea level.
+
+## Caves
+
+Carved in `carveAndSeed` after the column is filled: a cell becomes air when
+**both** 3D fields are near zero:
+
+```
+|fbm3_A(x·0.030, y·0.045, z·0.030, 2 oct)| < 0.085   &&  same for B
+```
+
+One field's zero set is a 2D surface through space; intersecting two gives 1D
+winding tunnels ("spaghetti caves") rather than blobs. The second field is
+only evaluated when the first passes — half the cost on most cells.
+
+Constraints:
+
+- y range [6, surface]; bedrock and water never carved.
+- Ocean floors keep ≥4 solid blocks (`surface ≤ 63` caps carving at
+  `surface−4`): a pocket under a water column has no fluid sim to drain it
+  and renders as a floating water ceiling.
+- Carving may remove the surface block — that's a cave entrance, intended.
+  Tree placement runs later and checks the grass block still exists, so no
+  floating trees.
+
+Tuning knobs: threshold 0.085 ≈ tunnel radius; frequency 0.030 ≈ tunnel
+spacing; the 1.5× vertical frequency squashes tunnels flatter than tall.
+
+## Ores
+
+Stone cells (only stone — never dirt/sand) sample one shared field
+`fbm3(·0.16, 2 oct)` and pass nested gates, rarest first:
+
+| Ore | Field > | Below y | Effect of sharing one field |
+|---|---|---|---|
+| Diamond | 0.70 | 16 | vein cores at depth |
+| Gold | 0.64 | 34 | shells around diamond |
+| Iron | 0.58 | 64 | shells around gold |
+| Coal | 0.52 | 110 | outermost, most common |
+
+One noise lookup per stone cell buys clustered veins with natural rarity
+ordering — no per-ore noise, no scatter pass. Raising a threshold makes that
+ore rarer; the depth gate moves where it appears.
+
+## Trees
+
+Plains only (`mountainFactor < 0.3`), on intact grass, where
+`hash(wx, wz, seed) % 1000 < 8`. Trunk 4–6, two-layer canopy with clipped
+corners. Trees keep a 2-block margin inside the chunk so the canopy never
+crosses a chunk border — the price of order-independent parallel generation
+(no cross-chunk structure writes, no pending-block queues).
+
+## Determinism rules
+
+When extending generation, preserve these or saves/multiworld break:
+
+- No RNG state across calls — only pure functions of (coords, seed). `Noise`
+  tables are fixed after construction; one-off decisions use `hashCoords`.
+- A chunk's blocks depend only on its own columns. Anything that would span
+  chunks (bigger structures) needs margins like trees, or a real
+  cross-chunk seeding pass — don't write into neighbour chunks from a
+  generator running on a worker.
+- `surfaceHeight` is the pre-cave height: spawn placement and the menu
+  camera use it, and caves may legitimately open right under spawn.

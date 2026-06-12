@@ -14,6 +14,7 @@ namespace {
 Input::Input(GLFWwindow* window) noexcept {
     glfwSetWindowUserPointer(window, this);
     glfwSetKeyCallback(window, onKey);
+    glfwSetCharCallback(window, onChar);
     glfwSetMouseButtonCallback(window, onMouseButton);
     glfwSetCursorPosCallback(window, onCursorPos);
     glfwSetScrollCallback(window, onScroll);
@@ -23,6 +24,7 @@ void Input::beginFrame() noexcept {
     m_keyPressed.fill(false);
     m_buttonPressed.fill(false);
     m_mouseDelta = glm::vec2{0.0f};
+    m_typed.clear();
     m_scroll = 0.0f;
 }
 
@@ -50,11 +52,17 @@ void Input::onKey(GLFWwindow* window, int key, int scancode, int action, int mod
         return;
     }
     Input& input = self(window);
-    if (action == GLFW_PRESS) {
+    if (action == GLFW_PRESS || action == GLFW_REPEAT) {
         input.m_keyDown[static_cast<std::size_t>(key)] = true;
         input.m_keyPressed[static_cast<std::size_t>(key)] = true;
     } else if (action == GLFW_RELEASE) {
         input.m_keyDown[static_cast<std::size_t>(key)] = false;
+    }
+}
+
+void Input::onChar(GLFWwindow* window, unsigned int codepoint) {
+    if (codepoint >= 32 && codepoint < 127) {
+        self(window).m_typed.push_back(static_cast<char>(codepoint));
     }
 }
 

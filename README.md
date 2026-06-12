@@ -23,9 +23,10 @@ If your MSVC version differs, update `compilerPath` in `.vscode/c_cpp_properties
 | F | Toggle fly |
 | Left / right click | Break / place block (hold to repeat) |
 | 1–8, scroll wheel | Select hotbar slot |
-| Esc | Pause menu (resume / save and quit) |
+| F3 | Debug overlay (fps, position, target block, chunk stats) |
+| Esc | Pause menu (resume / quit to menu) |
 
-The game opens on a main menu with a randomly seeded terrain fly-over in the background; Play starts the persistent world (fixed seed), Quit exits. The window title shows FPS, position, and loaded/drawn chunk counts.
+The game opens on a main menu with a randomly seeded terrain fly-over in the background. Play leads to the worlds screen: type a name and CREATE a new world (random seed), or load an existing one from the list. Pause quits back to the menu. The window title shows the world, FPS, position, and loaded/drawn chunk counts.
 
 ## Architecture
 
@@ -44,7 +45,8 @@ src/
                       batched draw per frame)
   world/              Chunk (16x16x256, contiguous), World (streaming pipeline),
                       ChunkMesher (greedy meshing + AO), TerrainGenerator (Perlin
-                      fBm, biomes, trees), WorldSave (RLE, versioned), Raycast (DDA)
+                      fBm, biomes, caves, ores, trees), WorldSave (RLE, versioned),
+                      WorldList (named worlds + meta), Raycast (DDA)
 shaders/              GLSL 330: chunk, hud, lines
 third_party/          vendored GLFW 3.4 (+ glfw3.lib), GLAD, GLM 1.0.1, stb_image
 ```
@@ -67,7 +69,7 @@ Greedy meshing per face direction: each slice builds a mask of visible faces (fa
 
 ### World persistence
 
-Only modified chunks are written: `saves/world_<seed>/c_<x>_<z>.bin`, an 8-byte magic+version header followed by RLE runs. Corrupt or version-mismatched files are ignored and the chunk regenerates. Saving happens on eviction and on exit.
+Each world lives in `saves/<name>/` with a `world.meta` (format version + seed). Only modified chunks are written: `c_<x>_<z>.bin`, an 8-byte magic+version header followed by RLE runs. Corrupt or version-mismatched files are ignored and the chunk regenerates. Saving happens on eviction, on quit-to-menu, and on exit.
 
 ### Textures
 

@@ -5,8 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-#include <format>
-#include <string>
+#include <utility>
 
 namespace cc {
 namespace {
@@ -23,9 +22,10 @@ constexpr int kUnloadSlack = 2; // hysteresis so chunks don't thrash at the edge
 
 } // namespace
 
-World::World(std::uint32_t seed, int renderDistance, ThreadPool& pool)
+World::World(std::uint32_t seed, int renderDistance, ThreadPool& pool,
+             std::filesystem::path saveDirectory)
     : m_generator{seed},
-      m_save{std::filesystem::path("saves") / std::format("world_{}", seed)},
+      m_save{std::move(saveDirectory)},
       m_pool{pool},
       m_renderDistance{renderDistance} {}
 

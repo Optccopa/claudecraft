@@ -9,6 +9,7 @@
 namespace cc {
 
 class Chunk;
+enum class BlockType : std::uint8_t;
 
 // Deterministic terrain from a seed: a low-frequency biome field blends plains
 // into mountains, with sea level, beaches, snow caps and scattered trees.
@@ -24,9 +25,13 @@ public:
 
 private:
     [[nodiscard]] float mountainFactor(int wx, int wz) const noexcept;
+    void carveAndSeed(BlockType* column, int wx, int wz, int surface) const noexcept;
 
     Noise m_heightNoise;
     Noise m_biomeNoise;
+    Noise m_caveNoiseA;
+    Noise m_caveNoiseB;
+    Noise m_oreNoise;
     std::uint32_t m_seed;
 };
 

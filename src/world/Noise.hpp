@@ -13,10 +13,13 @@ public:
 
     // Single octave in roughly [-1, 1].
     [[nodiscard]] float perlin(float x, float y) const noexcept;
+    [[nodiscard]] float perlin3(float x, float y, float z) const noexcept;
 
     // Fractal Brownian motion; result stays roughly in [-1, 1].
     [[nodiscard]] float fbm(float x, float y, int octaves, float lacunarity,
                             float gain) const noexcept;
+    [[nodiscard]] float fbm3(float x, float y, float z, int octaves, float lacunarity,
+                             float gain) const noexcept;
 
 private:
     std::array<std::uint8_t, 512> m_perm{};

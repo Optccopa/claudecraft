@@ -31,6 +31,15 @@ namespace {
     }
 }
 
+// Ken Perlin's improved-noise gradient set: 12 cube-edge directions
+// (duplicated to 16 cases so the hash masks cheaply).
+[[nodiscard]] float grad3(std::uint8_t hash, float x, float y, float z) noexcept {
+    const std::uint8_t h = hash & 15u;
+    const float u = h < 8 ? x : y;
+    const float v = h < 4 ? y : (h == 12 || h == 14 ? x : z);
+    return ((h & 1) == 0 ? u : -u) + ((h & 2) == 0 ? v : -v);
+}
+
 } // namespace
 
 Noise::Noise(std::uint32_t seed) {
@@ -66,6 +75,38 @@ float Noise::perlin(float x, float y) const noexcept {
     return lerp(x1, x2, v) * 1.41f;
 }
 
+float Noise::perlin3(float x, float y, float z) const noexcept {
+    const float fx = std::floor(x);
+    const float fy = std::floor(y);
+    const float fz = std::floor(z);
+    const int xi = static_cast<int>(fx) & 255;
+    const int yi = static_cast<int>(fy) & 255;
+    const int zi = static_cast<int>(fz) & 255;
+    const float dx = x - fx;
+    const float dy = y - fy;
+    const float dz = z - fz;
+
+    const float u = fade(dx);
+    const float v = fade(dy);
+    const float w = fade(dz);
+
+    const auto perm = [this](int i) noexcept { return m_perm[static_cast<std::size_t>(i)]; };
+    const int a = perm(xi) + yi;
+    const int aa = perm(a) + zi;
+    const int ab = perm(a + 1) + zi;
+    const int b = perm(xi + 1) + yi;
+    const int ba = perm(b) + zi;
+    const int bb = perm(b + 1) + zi;
+
+    const float x00 = lerp(grad3(perm(aa), dx, dy, dz), grad3(perm(ba), dx - 1, dy, dz), u);
+    const float x10 = lerp(grad3(perm(ab), dx, dy - 1, dz), grad3(perm(bb), dx - 1, dy - 1, dz), u);
+    const float x01 =
+        lerp(grad3(perm(aa + 1), dx, dy, dz - 1), grad3(perm(ba + 1), dx - 1, dy, dz - 1), u);
+    const float x11 = lerp(grad3(perm(ab + 1), dx, dy - 1, dz - 1),
+                           grad3(perm(bb + 1), dx - 1, dy - 1, dz - 1), u);
+    return lerp(lerp(x00, x10, v), lerp(x01, x11, v), w);
+}
+
 float Noise::fbm(float x, float y, int octaves, float lacunarity, float gain) const noexcept {
     float sum = 0.0f;
     float amplitude = 1.0f;
@@ -73,6 +114,21 @@ float Noise::fbm(float x, float y, int octaves, float lacunarity, float gain) co
     float range = 0.0f;
     for (int i = 0; i < octaves; ++i) {
         sum += perlin(x * frequency, y * frequency) * amplitude;
+        range += amplitude;
+        amplitude *= gain;
+        frequency *= lacunarity;
+    }
+    return sum / range;
+}
+
+float Noise::fbm3(float x, float y, float z, int octaves, float lacunarity,
+                  float gain) const noexcept {
+    float sum = 0.0f;
+    float amplitude = 1.0f;
+    float frequency = 1.0f;
+    float range = 0.0f;
+    for (int i = 0; i < octaves; ++i) {
+        sum += perlin3(x * frequency, y * frequency, z * frequency) * amplitude;
         range += amplitude;
         amplitude *= gain;
         frequency *= lacunarity;

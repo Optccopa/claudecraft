@@ -3,6 +3,7 @@
 #include <glm/vec2.hpp>
 
 #include <array>
+#include <string>
 
 struct GLFWwindow;
 
@@ -24,7 +25,10 @@ public:
     void beginFrame() noexcept;
 
     [[nodiscard]] bool isDown(int key) const noexcept;
+    // Edge-triggered; includes OS key-repeat so held backspace keeps erasing.
     [[nodiscard]] bool wasPressed(int key) const noexcept;
+    // Printable ASCII typed since the last beginFrame (for text fields).
+    [[nodiscard]] const std::string& typedText() const noexcept { return m_typed; }
     [[nodiscard]] bool isMouseDown(int button) const noexcept;
     [[nodiscard]] bool wasMousePressed(int button) const noexcept;
     [[nodiscard]] glm::vec2 mouseDelta() const noexcept { return m_mouseDelta; }
@@ -37,6 +41,7 @@ public:
 
 private:
     static void onKey(GLFWwindow* window, int key, int scancode, int action, int mods);
+    static void onChar(GLFWwindow* window, unsigned int codepoint);
     static void onMouseButton(GLFWwindow* window, int button, int action, int mods);
     static void onCursorPos(GLFWwindow* window, double x, double y);
     static void onScroll(GLFWwindow* window, double dx, double dy);
@@ -50,6 +55,7 @@ private:
     std::array<bool, kButtonCount> m_buttonPressed{};
     glm::vec2 m_mouseDelta{0.0f};
     glm::vec2 m_lastMousePos{0.0f};
+    std::string m_typed;
     float m_scroll = 0.0f;
     bool m_firstMouse = true;
 };

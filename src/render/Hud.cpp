@@ -63,8 +63,10 @@ void Hud::icon(float x, float y, float size, std::uint8_t tile) {
 
 void Hud::text(float x, float yTop, float scale, std::string_view str) {
     std::string buffer{str};
-    // ~270 bytes per character per stb_easy_font's own sizing guidance.
-    std::vector<char> quads(buffer.size() * 272 + 16);
+    // stb_easy_font's "270 bytes per character" is an average over long
+    // text; worst-case glyphs run far past it and short labels don't
+    // amortize, which silently truncates the last character's quads.
+    std::vector<char> quads(buffer.size() * 1000 + 64);
     const int quadCount =
         stb_easy_font_print(0.0f, 0.0f, buffer.data(), nullptr, quads.data(),
                             static_cast<int>(quads.size()));

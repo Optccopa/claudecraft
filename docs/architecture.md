@@ -28,22 +28,32 @@ Dependency rules (enforced by review, not tooling):
 
 ## Application state machine
 
-`Application::run` drives three states:
+`Application::run` drives three states; `Menu` has two screens:
 
 | State | World updated | Physics | Cursor | UI |
 |---|---|---|---|---|
-| `Menu` | menu world (random seed, distance 8) | none | free | title + PLAY/QUIT |
-| `Playing` | game world (seed 1337, distance 12) | fixed 60 Hz | captured | crosshair + hotbar |
-| `Paused` | game world (streaming only) | frozen | free | overlay + RESUME/SAVE AND QUIT |
+| `Menu`/Main | menu world (random seed, distance 8) | none | free | title + PLAY/QUIT |
+| `Menu`/Worlds | menu world | none | free | name field + CREATE + world list + BACK |
+| `Playing` | selected world (distance 12) | fixed 60 Hz | captured | crosshair + hotbar |
+| `Paused` | selected world (streaming only) | frozen | free | overlay + RESUME/QUIT TO MENU |
 
 ESC transitions are handled once at the top of the frame, *before* the state
 runs — a single press must not be consumed by two states in one frame (pause
-then instantly resume). Keep any new global hotkeys in that same block.
+then instantly resume). ESC walks back one level: Worlds → Main → quit;
+Playing ⇄ Paused. Keep any new global hotkeys in that same block.
 
-The menu world is a throwaway: random seed each launch, destroyed on PLAY
-(`World`'s destructor blocks until its worker jobs finish, then
-`Renderer::clearChunkMeshes()` wipes its GPU meshes). The game world is
-created lazily on PLAY so both never coexist.
+World identity comes from `world/WorldList`: the Worlds screen lists
+`saves/` (newest first) and creates named worlds with a random seed
+(see [save-format.md](save-format.md)). `startGame` and `enterMenu` are the
+only world-lifecycle functions: each resets the outgoing `World` (its
+destructor blocks until worker jobs finish, saving modified chunks) and
+calls `Renderer::clearChunkMeshes()`, so two worlds never coexist and the
+renderer never holds meshes for a dead world.
+
+The menu world is a throwaway: random seed each launch (and again on quit-
+to-menu), never modified, so it writes nothing to disk. Text input for the
+name field comes from `Input::typedText()` (GLFW char callback, printable
+ASCII, key-repeat-aware backspace).
 
 ## Frame loop
 
