@@ -2,7 +2,10 @@
 
 #include "render/TextureAtlas.hpp"
 
-#include <glm/vec2.hpp>
+#include <stb_easy_font.h>
+
+#include <cstring>
+#include <string>
 
 namespace cc {
 namespace {
@@ -16,6 +19,13 @@ constexpr float kIconInset = 6.0f;
 constexpr float kHotbarBottom = 16.0f;
 constexpr float kCrosshairLength = 18.0f;
 constexpr float kCrosshairThickness = 2.0f;
+
+// stb_easy_font emits 16-byte vertices: x, y, z floats plus an ignored color.
+struct EasyFontVertex {
+    float x, y, z;
+    std::uint8_t color[4];
+};
+static_assert(sizeof(EasyFontVertex) == 16);
 
 } // namespace
 
@@ -43,38 +53,81 @@ void Hud::pushQuad(float x, float y, float w, float h, std::uint32_t data) {
     m_scratch.insert(m_scratch.end(), {v0, v1, v2, v0, v2, v3});
 }
 
-void Hud::render(const glm::ivec2& framebufferSize, const TextureAtlas& atlas, int selectedSlot,
-                 std::span<const BlockType> hotbar) {
-    m_scratch.clear();
+void Hud::rect(float x, float y, float w, float h, RectStyle style) {
+    pushQuad(x, y, w, h, style == RectStyle::Dim ? kFlagDim : 0u);
+}
 
+void Hud::icon(float x, float y, float size, std::uint8_t tile) {
+    pushQuad(x, y, size, size, kFlagTextured | tile);
+}
+
+void Hud::text(float x, float yTop, float scale, std::string_view str) {
+    std::string buffer{str};
+    // ~270 bytes per character per stb_easy_font's own sizing guidance.
+    std::vector<char> quads(buffer.size() * 272 + 16);
+    const int quadCount =
+        stb_easy_font_print(0.0f, 0.0f, buffer.data(), nullptr, quads.data(),
+                            static_cast<int>(quads.size()));
+
+    // The font is authored y-down; flip into our y-up space around yTop.
+    const auto* verts = reinterpret_cast<const EasyFontVertex*>(quads.data());
+    for (int q = 0; q < quadCount; ++q) {
+        Vertex out[4];
+        for (int i = 0; i < 4; ++i) {
+            const EasyFontVertex& v = verts[q * 4 + i];
+            out[i] = Vertex{x + v.x * scale, yTop - v.y * scale, 0.0f, 0.0f, 0u};
+        }
+        m_scratch.insert(m_scratch.end(), {out[0], out[1], out[2], out[0], out[2], out[3]});
+    }
+}
+
+float Hud::textWidth(std::string_view str, float scale) {
+    std::string buffer{str};
+    return static_cast<float>(stb_easy_font_width(buffer.data())) * scale;
+}
+
+void Hud::crosshair(const glm::ivec2& framebufferSize) {
     const auto width = static_cast<float>(framebufferSize.x);
     const auto height = static_cast<float>(framebufferSize.y);
-
     pushQuad(width * 0.5f - kCrosshairLength * 0.5f, height * 0.5f - kCrosshairThickness * 0.5f,
              kCrosshairLength, kCrosshairThickness, 0);
     pushQuad(width * 0.5f - kCrosshairThickness * 0.5f, height * 0.5f - kCrosshairLength * 0.5f,
              kCrosshairThickness, kCrosshairLength, 0);
+}
 
-    const auto slotCount = static_cast<float>(hotbar.size());
+void Hud::hotbar(const glm::ivec2& framebufferSize, int selectedSlot,
+                 std::span<const BlockType> blocks) {
+    const auto width = static_cast<float>(framebufferSize.x);
+    const auto slotCount = static_cast<float>(blocks.size());
     const float barWidth = slotCount * kSlotSize + (slotCount - 1.0f) * kSlotGap;
     float slotX = width * 0.5f - barWidth * 0.5f;
-    for (std::size_t i = 0; i < hotbar.size(); ++i) {
+    for (std::size_t i = 0; i < blocks.size(); ++i) {
         if (static_cast<int>(i) == selectedSlot) {
-            pushQuad(slotX - 3.0f, kHotbarBottom - 3.0f, kSlotSize + 6.0f, kSlotSize + 6.0f, 0);
+            rect(slotX - 3.0f, kHotbarBottom - 3.0f, kSlotSize + 6.0f, kSlotSize + 6.0f,
+                 RectStyle::Bright);
         }
-        pushQuad(slotX, kHotbarBottom, kSlotSize, kSlotSize, kFlagDim);
-        pushQuad(slotX + kIconInset, kHotbarBottom + kIconInset, kSlotSize - 2.0f * kIconInset,
-                 kSlotSize - 2.0f * kIconInset,
-                 kFlagTextured | blockInfo(hotbar[i]).sideTile);
+        rect(slotX, kHotbarBottom, kSlotSize, kSlotSize, RectStyle::Dim);
+        icon(slotX + kIconInset, kHotbarBottom + kIconInset, kSlotSize - 2.0f * kIconInset,
+             blockInfo(blocks[i]).sideTile);
         slotX += kSlotSize + kSlotGap;
+    }
+}
+
+void Hud::flush(const glm::ivec2& framebufferSize, const TextureAtlas& atlas) {
+    if (m_scratch.empty()) {
+        return;
     }
 
     glDisable(GL_DEPTH_TEST);
+    // Text quads flip winding when mapped into y-up space; culling is off for
+    // the whole overlay pass rather than special-casing them.
+    glDisable(GL_CULL_FACE);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     m_shader.use();
-    m_shader.setVec2("uScreenSize", glm::vec2{width, height});
+    m_shader.setVec2("uScreenSize", glm::vec2{static_cast<float>(framebufferSize.x),
+                                              static_cast<float>(framebufferSize.y)});
     m_shader.setInt("uAtlas", 0);
     atlas.bind(0);
 
@@ -86,6 +139,7 @@ void Hud::render(const glm::ivec2& framebufferSize, const TextureAtlas& atlas, i
     glBindVertexArray(0);
 
     glDisable(GL_BLEND);
+    glEnable(GL_CULL_FACE);
     glEnable(GL_DEPTH_TEST);
 }
 

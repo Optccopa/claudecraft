@@ -23,9 +23,9 @@ If your MSVC version differs, update `compilerPath` in `.vscode/c_cpp_properties
 | F | Toggle fly |
 | Left / right click | Break / place block (hold to repeat) |
 | 1–8, scroll wheel | Select hotbar slot |
-| Esc | Quit (saves modified chunks) |
+| Esc | Pause menu (resume / save and quit) |
 
-The window title shows FPS, position, and loaded/drawn chunk counts.
+The game opens on a main menu with a randomly seeded terrain fly-over in the background; Play starts the persistent world (fixed seed), Quit exits. The window title shows FPS, position, and loaded/drawn chunk counts.
 
 ## Architecture
 
@@ -39,7 +39,9 @@ src/
   input/              Input (polled view over GLFW callbacks)
   player/             Camera (matrices), Player (swept-AABB physics, fly/walk)
   render/             Renderer (chunk GPU meshes, frustum culling, water pass,
-                      block highlight), TextureAtlas, Hud, Frustum
+                      block highlight), TextureAtlas, Frustum, Hud (immediate-
+                      mode overlay: rects/icons + stb_easy_font text, one
+                      batched draw per frame)
   world/              Chunk (16x16x256, contiguous), World (streaming pipeline),
                       ChunkMesher (greedy meshing + AO), TerrainGenerator (Perlin
                       fBm, biomes, trees), WorldSave (RLE, versioned), Raycast (DDA)
