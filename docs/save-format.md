@@ -1,0 +1,58 @@
+# Save format
+
+Only modified chunks touch disk. Path: `saves/world_<seed>/c_<x>_<z>.bin`
+(chunk coords, may be negative). The directory is created lazily on first
+save, so never-edited worlds — including every menu backdrop — leave nothing
+behind.
+
+## File layout (version 1)
+
+All values little-endian (native x64; no cross-platform ambition).
+
+```
+offset  size  field
+0       4     magic   0x4B484343  ("CCHK" in file order)
+4       2     version 1
+6       2     reserved (0)
+8       ...   RLE runs until exactly 65536 blocks are emitted:
+              u16 runLength   (1..65535, never 0)
+              u8  blockId     (must be < BlockType::Count)
+```
+
+Blocks stream in chunk index order `(x·16 + z)·256 + y` — y fastest, which is
+what makes RLE effective (long vertical runs of stone/air/water).
+
+## Validation and failure policy
+
+`WorldSave::tryLoad` returns `nullptr` (chunk regenerates from the seed) on:
+
+- missing file
+- magic or version mismatch
+- zero-length run, run overflowing the 65536 total, or block id ≥ `Count`
+- short read
+
+A corrupt save is logged and *silently regenerated* — losing one chunk's
+edits beats crashing the load. Saves are plain truncate-and-write; if
+atomicity ever matters (crash mid-save), switch to write-temp-then-rename.
+
+## When saves happen
+
+- Chunk evicted from the streaming ring (`World::unloadDistant`)
+- `World::saveModified` — on window close and in `World::~World`
+- `markModified` is set only by real edits (`setBlock`), not by generation
+  or by neighbour-triggered mesh invalidation
+
+## Versioning rules
+
+Any change to the layout above **must** bump `kVersion`. Old versions are
+rejected (regenerate), not migrated — acceptable while the format is young;
+write a migration path only when player worlds are worth preserving.
+
+Adding a new `BlockType` is backward-compatible (ids are append-only —
+**never reorder or remove enum values**, they're serialized as raw u8).
+Removing one is not; that's a version bump plus a remap on load.
+
+The world seed is part of the save identity (it's in the directory name).
+Changing `Application::kSeed` orphans existing saves rather than corrupting
+them — terrain regenerates differently but edited chunks load fine only for
+the matching seed folder.

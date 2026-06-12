@@ -72,3 +72,7 @@ Only modified chunks are written: `saves/world_<seed>/c_<x>_<z>.bin`, an 8-byte 
 ### Textures
 
 `render/TextureAtlas` loads `textures/atlas.png` (square, side divisible by 4, 4x4 tile grid) if present; otherwise it paints a deterministic procedural atlas so the repo needs no binary assets.
+
+## Further reading
+
+Subsystem docs live in [docs/](docs/README.md): architecture, build system, threading model, meshing, rendering, and the save format. They are kept in sync with the code (enforced by `CLAUDE.md`).

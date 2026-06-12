@@ -1,0 +1,88 @@
+# Architecture
+
+Top-level data flow, module boundaries, and the rules that keep them apart.
+For threading details see [threading.md](threading.md); for meshing see
+[meshing.md](meshing.md).
+
+## Module map
+
+```
+app/         Window (GLFW/GLAD lifetime), Application (composition root + state machine)
+core/        ThreadPool, ConcurrentQueue, logging — no game knowledge
+gl/          RAII handles, ShaderProgram, KHR_debug hookup — no game knowledge
+input/       Input — polled wrapper over GLFW callbacks
+player/      Camera (pure math), Player (physics, no GL, no GLFW)
+render/      Renderer, TextureAtlas, Frustum, Hud — owns ALL chunk GPU state
+world/       Chunk, World, ChunkMesher, TerrainGenerator, WorldSave, Raycast — no GL
+```
+
+Dependency rules (enforced by review, not tooling):
+
+- `world/` never includes anything from `gl/` or `render/`. Finished meshes
+  leave `World::update` as CPU data (`WorldUpdate`) and the renderer uploads
+  them. This is what keeps GL on the main thread for free.
+- `core/` and `gl/` know nothing about blocks, chunks, or players.
+- Only `Application` wires modules together. No module reaches for another
+  via globals — there are none.
+- `Player` takes `const World&` per call; it holds no world reference.
+
+## Application state machine
+
+`Application::run` drives three states:
+
+| State | World updated | Physics | Cursor | UI |
+|---|---|---|---|---|
+| `Menu` | menu world (random seed, distance 8) | none | free | title + PLAY/QUIT |
+| `Playing` | game world (seed 1337, distance 12) | fixed 60 Hz | captured | crosshair + hotbar |
+| `Paused` | game world (streaming only) | frozen | free | overlay + RESUME/SAVE AND QUIT |
+
+ESC transitions are handled once at the top of the frame, *before* the state
+runs — a single press must not be consumed by two states in one frame (pause
+then instantly resume). Keep any new global hotkeys in that same block.
+
+The menu world is a throwaway: random seed each launch, destroyed on PLAY
+(`World`'s destructor blocks until its worker jobs finish, then
+`Renderer::clearChunkMeshes()` wipes its GPU meshes). The game world is
+created lazily on PLAY so both never coexist.
+
+## Frame loop
+
+```
+beginFrame (input edge reset) → glfwPollEvents
+ESC state transition
+state update:
+    gameplay input → fixed-step physics (accumulator) → World::update
+    → renderer uploads/removals → 3D render → HUD batch
+hud.flush (single draw)
+swapBuffers → title-bar stats
+```
+
+Physics runs at a fixed 1/60 s; rendering is uncapped and interpolates the
+player position by `accumulator / dt` (`Player::eyePosition(alpha)`).
+Frame gaps are clamped to 0.25 s so a debugger pause doesn't spiral the
+accumulator. Look (yaw/pitch) updates at render rate for latency; movement
+intent is sampled into `PlayerInput` and applied in the fixed step.
+
+## Ownership and lifetime
+
+- Every GL object lives in a move-only RAII wrapper (`gl/GlObjects.hpp`,
+  `gl/ShaderProgram`). Constructors require a current context; the moved-from
+  state is id 0 and destruction of id 0 is a no-op.
+- `Application`'s member declaration order is load-bearing: `m_pool` is
+  declared before the worlds so destruction (reverse order) tears down each
+  `World` — whose destructor waits for its in-flight jobs — while the pool
+  still exists. Don't reorder those members.
+- `Window` is pinned (copy and move deleted): it owns process-wide GLFW
+  init/terminate.
+
+## Coordinates
+
+- World space: +y up, chunk (cx, cz) spans x ∈ [16·cx, 16·cx+16).
+- Chunk-local indexing `(x·16 + z)·256 + y` — y contiguous, so a vertical
+  column is one `memcpy` (terrain fill, mesh snapshots, RLE saves all lean
+  on this).
+- `wx >> 4` / `wx & 15` for chunk coord / local coord — arithmetic shift
+  floors correctly for negatives where `/ 16` wouldn't.
+- HUD space: pixels, origin bottom-left, y up. Cursor coords from GLFW are
+  window-relative y-down and get flipped + DPI-scaled in
+  `Application::mouseUiPosition`.

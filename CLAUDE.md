@@ -59,6 +59,22 @@ This is a real codebase a senior engineer would sign off on — not a demo, not 
 - `assert` invariants the code relies on. In release, invalid input degrades gracefully; impossible states stay asserts.
 - Fail loudly in debug, never silently.
 
+## Documentation
+
+`docs/` holds one doc per subsystem; the index in `docs/README.md` maps code
+areas to docs. Rules:
+
+- **Every code change updates its matching doc in the same change** — if the
+  doc's description of behavior, formats, flags, or invariants is no longer
+  exactly true, fix it before the change is done. The mapping table in
+  `docs/README.md` says which doc owns what.
+- New subsystems get a new doc plus an index row.
+- Docs state behavior, invariants, and the *why* behind non-obvious choices.
+  No filler, no tutorials, no restating code line by line — same bar as
+  comments.
+- Format changes (save files, vertex layouts, packed bitfields) must update
+  the corresponding tables — those tables are the spec.
+
 ## Definition of done
 
 A change is done only when:
@@ -68,6 +84,7 @@ A change is done only when:
 - Every owned resource is RAII-managed.
 - Every non-trivial algorithm has a rationale comment.
 - Nothing on the forbidden list above is present.
+- The matching doc in `docs/` (per the `docs/README.md` index) is still accurate.
 - It runs without GL debug errors and holds the 60+ FPS target at a 12-chunk render distance.
 
 ## Maintenance
