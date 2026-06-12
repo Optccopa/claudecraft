@@ -428,12 +428,16 @@ void Application::drawDebugOverlay(const glm::ivec2& fbSize, const RaycastHit& t
     const int clockHour = static_cast<int>(dayHours);
     const int clockMinute = static_cast<int>((dayHours - clockHour) * 60.0);
 
-    const std::array<std::string, 11> lines{
+    const std::array<std::string, 12> lines{
         std::format("claudecraft {} | {:.0f} fps ({:.2f} ms)", kDebugBuild ? "debug" : "release",
                     m_smoothedFps, m_smoothedFps > 0.0 ? 1000.0 / m_smoothedFps : 0.0),
         std::format("World: {} Seed: {}", m_currentWorld.name, m_currentWorld.seed),
         std::format("time: {:02}:{:02} (day fraction {:.3f})", clockHour, clockMinute,
                     m_worldTime),
+        std::format("biome: {}",
+                    biomeName(m_world->generator().biomeAt(
+                        static_cast<int>(std::floor(pos.x)),
+                        static_cast<int>(std::floor(pos.z))))),
         std::format("xyz: {:.2f} / {:.2f} / {:.2f}", pos.x, pos.y, pos.z),
         std::format("chunk: {} {}  local: {} {}", chunk.x, chunk.z,
                     static_cast<int>(std::floor(pos.x)) & 15,

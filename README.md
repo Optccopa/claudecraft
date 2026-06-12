@@ -2,6 +2,8 @@
 
 A Minecraft-style voxel game in modern C++20. OpenGL 3.3 core via GLFW + GLAD, GLM math, stb_image textures. No engine, no CMake — the build is two `cl.exe` invocations driven by `.vscode/tasks.json`.
 
+![Title Screen](images/title_screen.png)
+
 ## Setup
 
 1. Install Visual Studio (Community is fine) with the "Desktop development with C++" workload.

@@ -57,27 +57,74 @@ void plantTree(Chunk& chunk, int lx, int surfaceY, int lz, std::uint32_t hash) {
 
 } // namespace
 
+std::string_view biomeName(Biome biome) noexcept {
+    switch (biome) {
+    case Biome::Plains: return "plains";
+    case Biome::Forest: return "forest";
+    case Biome::Desert: return "desert";
+    case Biome::Mountains: return "mountains";
+    case Biome::Ocean: return "ocean";
+    }
+    return "?";
+}
+
 TerrainGenerator::TerrainGenerator(std::uint32_t seed)
     : m_heightNoise{seed},
       m_biomeNoise{seed ^ 0x9E3779B9u},
+      m_moistureNoise{seed ^ 0x165667B1u},
       m_caveNoiseA{seed ^ 0x85EBCA6Bu},
       m_caveNoiseB{seed ^ 0xC2B2AE35u},
       m_oreNoise{seed ^ 0x27D4EB2Fu},
       m_seed{seed} {}
 
-float TerrainGenerator::mountainFactor(int wx, int wz) const noexcept {
-    const float biome = m_biomeNoise.fbm(static_cast<float>(wx) * 0.0011f,
-                                         static_cast<float>(wz) * 0.0011f, 2, 2.0f, 0.5f);
-    return smoothstep(0.05f, 0.42f, biome);
+// One continental field drives both extremes — high values raise mountains,
+// low values sink ocean basins — so the two can never overlap and the
+// transition through plains-height coastline falls out for free.
+TerrainGenerator::BiomeFactors TerrainGenerator::factorsAt(int wx, int wz) const noexcept {
+    const float continental = m_biomeNoise.fbm(static_cast<float>(wx) * 0.0011f,
+                                               static_cast<float>(wz) * 0.0011f, 2, 2.0f, 0.5f);
+    const float moisture = m_moistureNoise.fbm(static_cast<float>(wx) * 0.0009f,
+                                               static_cast<float>(wz) * 0.0009f, 2, 2.0f, 0.5f);
+    return BiomeFactors{
+        smoothstep(0.05f, 0.42f, continental),
+        smoothstep(0.16f, 0.40f, -continental),
+        moisture,
+    };
 }
 
-int TerrainGenerator::surfaceHeight(int wx, int wz) const noexcept {
+Biome TerrainGenerator::classify(const BiomeFactors& f) noexcept {
+    if (f.ocean > 0.5f) {
+        return Biome::Ocean;
+    }
+    if (f.mountain > 0.5f) {
+        return Biome::Mountains;
+    }
+    if (f.moisture < -0.22f) {
+        return Biome::Desert;
+    }
+    if (f.moisture > 0.28f) {
+        return Biome::Forest;
+    }
+    return Biome::Plains;
+}
+
+Biome TerrainGenerator::biomeAt(int wx, int wz) const noexcept {
+    return classify(factorsAt(wx, wz));
+}
+
+int TerrainGenerator::heightFor(const BiomeFactors& f, int wx, int wz) const noexcept {
     const float n = m_heightNoise.fbm(static_cast<float>(wx) * 0.008f,
                                       static_cast<float>(wz) * 0.008f, 4, 2.0f, 0.5f);
     const float plains = 66.0f + n * 5.0f;
     const float mountains = 84.0f + n * 52.0f;
-    const float h = plains + (mountains - plains) * mountainFactor(wx, wz);
+    float h = plains + (mountains - plains) * f.mountain;
+    const float oceanFloor = 46.0f + n * 5.0f;
+    h += (oceanFloor - h) * f.ocean;
     return std::clamp(static_cast<int>(h), 1, Chunk::SizeY - 16);
+}
+
+int TerrainGenerator::surfaceHeight(int wx, int wz) const noexcept {
+    return heightFor(factorsAt(wx, wz), wx, wz);
 }
 
 // Caves: two independent low-frequency 3D noise fields, carved where both
@@ -132,10 +179,12 @@ std::unique_ptr<Chunk> TerrainGenerator::generate(ChunkCoord coord) const {
         for (int lz = 0; lz < Chunk::SizeZ; ++lz) {
             const int wx = coord.x * Chunk::SizeX + lx;
             const int wz = coord.z * Chunk::SizeZ + lz;
-            const int h = surfaceHeight(wx, wz);
+            const BiomeFactors factors = factorsAt(wx, wz);
+            const Biome biome = classify(factors);
+            const int h = heightFor(factors, wx, wz);
 
             BlockType top = BlockType::Grass;
-            if (h <= SeaLevel + 1) {
+            if (biome == Biome::Desert || h <= SeaLevel + 1) {
                 top = BlockType::Sand;
             } else if (h >= kSnowLine) {
                 top = BlockType::Snow;
@@ -165,12 +214,19 @@ std::unique_ptr<Chunk> TerrainGenerator::generate(ChunkCoord coord) const {
         for (int lz = 2; lz < Chunk::SizeZ - 2; ++lz) {
             const int wx = coord.x * Chunk::SizeX + lx;
             const int wz = coord.z * Chunk::SizeZ + lz;
+            const Biome biome = biomeAt(wx, wz);
+            std::uint32_t density = 0;
+            if (biome == Biome::Plains) {
+                density = 8;
+            } else if (biome == Biome::Forest) {
+                density = 55;
+            }
             const std::uint32_t hash = hashCoords(wx, wz, m_seed);
-            if (hash % 1000u >= 8u) {
+            if (density == 0 || hash % 1000u >= density) {
                 continue;
             }
             const int h = surfaceHeight(wx, wz);
-            if (chunk->at(lx, h, lz) == BlockType::Grass && mountainFactor(wx, wz) < 0.3f) {
+            if (chunk->at(lx, h, lz) == BlockType::Grass) {
                 plantTree(*chunk, lx, h, lz, hash);
             }
         }
