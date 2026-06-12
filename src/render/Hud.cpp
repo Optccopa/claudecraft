@@ -97,20 +97,33 @@ void Hud::crosshair(const glm::ivec2& framebufferSize) {
              kCrosshairThickness, kCrosshairLength, 0);
 }
 
+void Hud::itemSlot(float x, float y, float size, const ItemStack& stack, bool showCount) {
+    rect(x, y, size, size, RectStyle::Dim);
+    if (stack.empty()) {
+        return;
+    }
+    const float inset = size * 0.125f;
+    icon(x + inset, y + inset, size - 2.0f * inset, blockInfo(stack.type).sideTile);
+    if (showCount && stack.count > 1) {
+        const std::string count = std::to_string(stack.count);
+        const float scale = 1.6f;
+        text(x + size - Hud::textWidth(count, scale) - 4.0f, y + 6.0f + 8.0f * scale, scale,
+             count);
+    }
+}
+
 void Hud::hotbar(const glm::ivec2& framebufferSize, int selectedSlot,
-                 std::span<const BlockType> blocks) {
+                 std::span<const ItemStack> slots, bool showCounts) {
     const auto width = static_cast<float>(framebufferSize.x);
-    const auto slotCount = static_cast<float>(blocks.size());
+    const auto slotCount = static_cast<float>(slots.size());
     const float barWidth = slotCount * kSlotSize + (slotCount - 1.0f) * kSlotGap;
     float slotX = width * 0.5f - barWidth * 0.5f;
-    for (std::size_t i = 0; i < blocks.size(); ++i) {
+    for (std::size_t i = 0; i < slots.size(); ++i) {
         if (static_cast<int>(i) == selectedSlot) {
             rect(slotX - 3.0f, kHotbarBottom - 3.0f, kSlotSize + 6.0f, kSlotSize + 6.0f,
                  RectStyle::Bright);
         }
-        rect(slotX, kHotbarBottom, kSlotSize, kSlotSize, RectStyle::Dim);
-        icon(slotX + kIconInset, kHotbarBottom + kIconInset, kSlotSize - 2.0f * kIconInset,
-             blockInfo(blocks[i]).sideTile);
+        itemSlot(slotX, kHotbarBottom, kSlotSize, slots[i], showCounts);
         slotX += kSlotSize + kSlotGap;
     }
 }

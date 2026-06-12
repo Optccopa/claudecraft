@@ -12,34 +12,39 @@ namespace cc::worldlist {
 namespace {
 
 constexpr std::string_view kMetaFile = "world.meta";
-// v1: seed only. v2 appends time of day. Readers accept both so v1 worlds
-// open seamlessly; writers always emit v2.
-constexpr std::string_view kMetaHeaderV1 = "claudecraft-world 1";
-constexpr std::string_view kMetaHeaderV2 = "claudecraft-world 2";
+// v1: seed. v2: + time of day. v3: + game mode. Readers accept all three so
+// old worlds open seamlessly (defaulting creative); writers always emit v3.
+constexpr std::string_view kMetaPrefix = "claudecraft-world ";
 
 [[nodiscard]] bool readMeta(const std::filesystem::path& dir, std::uint32_t& seedOut,
-                            double& timeOut) {
+                            double& timeOut, GameMode& modeOut) {
     std::ifstream file(dir / kMetaFile);
     std::string header;
-    std::string seedLine;
-    if (!std::getline(file, header) || (header != kMetaHeaderV1 && header != kMetaHeaderV2) ||
-        !std::getline(file, seedLine)) {
+    if (!std::getline(file, header) || !header.starts_with(kMetaPrefix)) {
         return false;
     }
-    const auto result =
-        std::from_chars(seedLine.data(), seedLine.data() + seedLine.size(), seedOut);
-    if (result.ec != std::errc{} || result.ptr != seedLine.data() + seedLine.size()) {
+    int version = 0;
+    const char* verFirst = header.data() + kMetaPrefix.size();
+    const auto verResult = std::from_chars(verFirst, header.data() + header.size(), version);
+    if (verResult.ec != std::errc{} || version < 1 || version > 3) {
         return false;
     }
-    if (header == kMetaHeaderV2) {
-        std::string timeLine;
-        if (std::getline(file, timeLine)) {
-            const auto timeResult =
-                std::from_chars(timeLine.data(), timeLine.data() + timeLine.size(), timeOut);
-            if (timeResult.ec != std::errc{}) {
-                return false;
-            }
+
+    std::string line;
+    if (!std::getline(file, line)) {
+        return false;
+    }
+    const auto seedResult = std::from_chars(line.data(), line.data() + line.size(), seedOut);
+    if (seedResult.ec != std::errc{} || seedResult.ptr != line.data() + line.size()) {
+        return false;
+    }
+    if (version >= 2 && std::getline(file, line)) {
+        if (std::from_chars(line.data(), line.data() + line.size(), timeOut).ec != std::errc{}) {
+            return false;
         }
+    }
+    if (version >= 3 && std::getline(file, line)) {
+        modeOut = (line == "survival") ? GameMode::Survival : GameMode::Creative;
     }
     return true;
 }
@@ -83,11 +88,12 @@ std::vector<WorldInfo> list(const std::filesystem::path& savesRoot) {
         const std::string name = entry.path().filename().string();
         std::uint32_t seed = 0;
         double timeOfDay = 0.05;
-        if (!readMeta(entry.path(), seed, timeOfDay) && !parseLegacyName(name, seed)) {
+        GameMode mode = GameMode::Creative;
+        if (!readMeta(entry.path(), seed, timeOfDay, mode) && !parseLegacyName(name, seed)) {
             continue;
         }
         found.emplace_back(entry.last_write_time(ec),
-                           WorldInfo{name, seed, timeOfDay, entry.path()});
+                           WorldInfo{name, seed, timeOfDay, mode, entry.path()});
     }
     std::sort(found.begin(), found.end(),
               [](const auto& a, const auto& b) { return a.first > b.first; });
@@ -101,7 +107,7 @@ std::vector<WorldInfo> list(const std::filesystem::path& savesRoot) {
 }
 
 WorldInfo create(const std::filesystem::path& savesRoot, std::string_view name,
-                 std::uint32_t seed) {
+                 std::uint32_t seed, GameMode mode) {
     const std::string base = sanitize(name);
     std::string dirName = base;
     for (int suffix = 2; std::filesystem::exists(savesRoot / dirName); ++suffix) {
@@ -109,16 +115,20 @@ WorldInfo create(const std::filesystem::path& savesRoot, std::string_view name,
     }
 
     const std::filesystem::path dir = savesRoot / dirName;
-    const WorldInfo info{dirName, seed, 0.05, dir};
+    const WorldInfo info{dirName, seed, 0.05, mode, dir};
     std::filesystem::create_directories(dir);
     saveMeta(info);
-    logInfo(std::format("created world '{}' (seed {})", dirName, seed));
+    logInfo(std::format("created world '{}' (seed {}, {})", dirName, seed,
+                        mode == GameMode::Survival ? "survival" : "creative"));
     return info;
 }
 
 void saveMeta(const WorldInfo& info) {
     std::ofstream meta(info.directory / kMetaFile, std::ios::trunc);
-    meta << kMetaHeaderV2 << '\n' << info.seed << '\n' << info.timeOfDay << '\n';
+    meta << kMetaPrefix << 3 << '\n'
+         << info.seed << '\n'
+         << info.timeOfDay << '\n'
+         << (info.mode == GameMode::Survival ? "survival" : "creative") << '\n';
     if (!meta) {
         logError(std::format("failed to write world.meta for '{}'", info.name));
     }

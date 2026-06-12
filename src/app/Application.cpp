@@ -37,6 +37,22 @@ constexpr const char* kSettingsPath = "settings.txt";
 constexpr std::array<int, 7> kRenderDistanceOptions{4, 6, 8, 10, 12, 14, 16};
 constexpr std::array<int, 7> kFovOptions{60, 70, 75, 80, 90, 100, 110};
 
+constexpr std::array<BlockType, Inventory::HotbarSize> kCreativePalette{
+    BlockType::Stone, BlockType::Dirt,  BlockType::Grass,
+    BlockType::Sand,  BlockType::Wood,  BlockType::Leaves,
+    BlockType::Plank, BlockType::Snow,  BlockType::Glowstone};
+
+// Grass crumbles to dirt; everything else drops itself.
+[[nodiscard]] BlockType dropTypeFor(BlockType broken) noexcept {
+    return broken == BlockType::Grass ? BlockType::Dirt : broken;
+}
+
+[[nodiscard]] std::uint32_t scatterHash(const glm::ivec3& cell) noexcept {
+    return static_cast<std::uint32_t>(cell.x) * 73856093u ^
+           static_cast<std::uint32_t>(cell.y) * 19349663u ^
+           static_cast<std::uint32_t>(cell.z) * 83492791u;
+}
+
 // Advance to the option after `current` (nearest match), wrapping.
 [[nodiscard]] int cycleOption(int current, std::span<const int> options) noexcept {
     std::size_t index = 0;
@@ -118,10 +134,25 @@ void Application::startGame(const WorldInfo& info) {
     m_currentWorld = info;
     m_worldTime = info.timeOfDay;
 
+    m_inventory.clear();
+    if (std::filesystem::exists(info.directory / "player.dat")) {
+        m_inventory.loadFrom(info.directory / "player.dat");
+    } else if (info.mode == GameMode::Creative) {
+        // Fresh creative worlds start with the classic palette on the hotbar.
+        for (std::size_t i = 0; i < kCreativePalette.size(); ++i) {
+            m_inventory.slot(static_cast<int>(i)) = ItemStack{kCreativePalette[i], 1};
+        }
+    }
+    m_drops.clear();
+    m_inventoryOpen = false;
+    m_held = ItemStack{};
+    m_miningProgress = 0.0f;
+
     m_state = GameState::Playing;
     m_window.setCursorCaptured(true);
     m_input.resetMouseDelta();
-    logInfo(std::format("entering world '{}' (seed {})", info.name, info.seed));
+    logInfo(std::format("entering world '{}' (seed {}, {})", info.name, info.seed,
+                        info.mode == GameMode::Survival ? "survival" : "creative"));
 }
 
 void Application::enterSettings(GameState from) {
@@ -196,18 +227,34 @@ void Application::renderWorld(World& world, const glm::ivec2& fbSize, const glm:
 }
 
 void Application::saveWorldMeta() {
-    if (m_world != nullptr && !m_currentWorld.name.empty()) {
-        m_currentWorld.timeOfDay = m_worldTime;
-        worldlist::saveMeta(m_currentWorld);
+    if (m_world == nullptr || m_currentWorld.name.empty()) {
+        return;
     }
+    m_currentWorld.timeOfDay = m_worldTime;
+    worldlist::saveMeta(m_currentWorld);
+    if (!m_held.empty()) {
+        m_inventory.add(m_held.type, m_held.count);
+        m_held = ItemStack{};
+    }
+    m_inventory.saveTo(m_currentWorld.directory / "player.dat");
 }
 
 void Application::handleGameplayInput(float frameDt, const RaycastHit& target) {
-    if (m_input.wasPressed(GLFW_KEY_F)) {
-        m_player.toggleFly();
-    }
     if (m_input.wasPressed(GLFW_KEY_F3)) {
         m_showDebug = !m_showDebug;
+    }
+    const bool survival = m_currentWorld.mode == GameMode::Survival;
+    if (m_input.wasPressed(GLFW_KEY_E)) {
+        setInventoryOpen(!m_inventoryOpen);
+    }
+    if (m_inventoryOpen) {
+        m_player.setInput(PlayerInput{}); // stop walking while the grid is up
+        m_miningProgress = 0.0f;
+        return;
+    }
+
+    if (m_input.wasPressed(GLFW_KEY_F) && !survival) {
+        m_player.toggleFly();
     }
 
     const glm::vec2 look = m_input.mouseDelta() * kMouseSensitivity * m_settings.sensitivity;
@@ -229,29 +276,82 @@ void Application::handleGameplayInput(float frameDt, const RaycastHit& target) {
     }
     const float scroll = m_input.scrollDelta();
     if (scroll != 0.0f) {
-        const int slots = static_cast<int>(m_hotbar.size());
+        constexpr int slots = Inventory::HotbarSize;
         m_selectedSlot = (m_selectedSlot - static_cast<int>(scroll) % slots + slots) % slots;
     }
 
-    // Edge presses act instantly; holding repeats on a cooldown.
+    handleBlockEdits(frameDt, target);
+}
+
+void Application::handleBlockEdits(float frameDt, const RaycastHit& target) {
+    const bool survival = m_currentWorld.mode == GameMode::Survival;
+
+    // Breaking. Creative: instant with a hold-repeat cooldown. Survival:
+    // hold to mine — progress accumulates against the block's hardness and
+    // resets when the target changes or the button is released.
     m_editCooldown = std::max(m_editCooldown - frameDt, 0.0f);
-    const bool breakNow = m_input.wasMousePressed(GLFW_MOUSE_BUTTON_LEFT) ||
-                          (m_input.isMouseDown(GLFW_MOUSE_BUTTON_LEFT) && m_editCooldown == 0.0f);
+    const bool holdingBreak = m_input.isMouseDown(GLFW_MOUSE_BUTTON_LEFT);
+    if (survival) {
+        if (holdingBreak && target.hit && blockInfo(m_world->blockAt(target.block)).breakable) {
+            if (m_miningCell != target.block) {
+                m_miningCell = target.block;
+                m_miningProgress = 0.0f;
+            }
+            m_miningProgress += frameDt;
+            const BlockType type = m_world->blockAt(target.block);
+            if (m_miningProgress >= blockInfo(type).hardness &&
+                m_world->setBlock(target.block, BlockType::Air)) {
+                m_drops.spawn(target.block, dropTypeFor(type), scatterHash(target.block));
+                m_miningProgress = 0.0f;
+            }
+        } else {
+            m_miningProgress = 0.0f;
+        }
+    } else {
+        const bool breakNow =
+            m_input.wasMousePressed(GLFW_MOUSE_BUTTON_LEFT) ||
+            (holdingBreak && m_editCooldown == 0.0f);
+        if (target.hit && breakNow && m_world->setBlock(target.block, BlockType::Air)) {
+            m_editCooldown = kEditRepeatDelay;
+            return;
+        }
+    }
+
+    // Placing. Survival consumes from the selected hotbar stack.
     const bool placeNow = m_input.wasMousePressed(GLFW_MOUSE_BUTTON_RIGHT) ||
                           (m_input.isMouseDown(GLFW_MOUSE_BUTTON_RIGHT) && m_editCooldown == 0.0f);
+    if (!target.hit || !placeNow || target.previous == target.block ||
+        m_player.intersectsBlock(target.previous) ||
+        blockInfo(m_world->blockAt(target.previous)).solid) {
+        return;
+    }
+    // Both modes place from the hotbar stack; only survival consumes it.
+    const ItemStack& stack = m_inventory.slot(m_selectedSlot);
+    if (stack.empty()) {
+        return;
+    }
+    if (m_world->setBlock(target.previous, stack.type)) {
+        if (survival) {
+            m_inventory.consumeOne(m_selectedSlot);
+        }
+        m_editCooldown = kEditRepeatDelay;
+    }
+}
 
-    if (target.hit && breakNow) {
-        if (m_world->setBlock(target.block, BlockType::Air)) {
-            m_editCooldown = kEditRepeatDelay;
-        }
-    } else if (target.hit && placeNow) {
-        if (target.previous != target.block && !m_player.intersectsBlock(target.previous) &&
-            !blockInfo(m_world->blockAt(target.previous)).solid) {
-            if (m_world->setBlock(target.previous,
-                                  m_hotbar[static_cast<std::size_t>(m_selectedSlot)])) {
-                m_editCooldown = kEditRepeatDelay;
+void Application::setInventoryOpen(bool open) {
+    m_inventoryOpen = open;
+    m_window.setCursorCaptured(!open);
+    if (!open) {
+        // Return whatever the cursor still holds to where it came from.
+        if (!m_held.empty()) {
+            if (m_heldFrom >= 0 && m_inventory.slot(m_heldFrom).empty()) {
+                m_inventory.slot(m_heldFrom) = m_held;
+            } else {
+                m_inventory.add(m_held.type, m_held.count);
             }
+            m_held = ItemStack{};
         }
+        m_input.resetMouseDelta();
     }
 }
 
@@ -335,15 +435,20 @@ void Application::drawWorldsScreen(const glm::ivec2& fbSize) {
                             : m_nameField + (cursorOn ? "|" : "");
     m_hud.text(centerX - fieldW * 0.5f + 12.0f, fieldY + fieldH * 0.5f + 4.0f * 2.5f, 2.5f, shown);
 
+    if (button(fbSize, centerX, fieldY - kButtonHeight - 14.0f,
+               m_createMode == GameMode::Survival ? "MODE: SURVIVAL" : "MODE: CREATIVE")) {
+        m_createMode = m_createMode == GameMode::Survival ? GameMode::Creative
+                                                          : GameMode::Survival;
+    }
     const bool createClicked =
-        button(fbSize, centerX, fieldY - kButtonHeight - 14.0f, "CREATE") ||
+        button(fbSize, centerX, fieldY - 2.0f * (kButtonHeight + 14.0f), "CREATE") ||
         m_input.wasPressed(GLFW_KEY_ENTER);
     if (createClicked) {
-        startGame(worldlist::create(kSavesRoot, m_nameField, randomSeed()));
+        startGame(worldlist::create(kSavesRoot, m_nameField, randomSeed(), m_createMode));
         return;
     }
 
-    float listY = fieldY - 2.0f * (kButtonHeight + 14.0f) - 64.0f;
+    float listY = fieldY - 3.0f * (kButtonHeight + 14.0f) - 64.0f;
     if (!m_worlds.empty()) {
         const float labelW = Hud::textWidth("LOAD WORLD", 3.5f);
         m_hud.text(centerX - labelW * 0.5f, listY + kButtonHeight + 44.0f, 3.5f, "LOAD WORLD");
@@ -374,21 +479,165 @@ void Application::updatePlaying(float frameDt, const glm::ivec2& fbSize, double&
 
     handleGameplayInput(frameDt, target);
 
+    const bool survival = m_currentWorld.mode == GameMode::Survival;
     accumulator += frameDt;
     while (accumulator >= kFixedDt) {
         m_player.fixedUpdate(static_cast<float>(kFixedDt), *m_world);
+        for (const BlockType picked :
+             m_drops.update(static_cast<float>(kFixedDt), *m_world, m_player.position())) {
+            m_inventory.add(picked, 1);
+        }
         accumulator -= kFixedDt;
     }
 
+    const SkyState sky = skyStateAt(m_worldTime);
     const float alpha = static_cast<float>(accumulator / kFixedDt);
     renderWorld(*m_world, fbSize, m_player.eyePosition(alpha), m_player.yaw(), m_player.pitch(),
-                fogEndFor(m_settings.renderDistance), skyStateAt(m_worldTime),
+                fogEndFor(m_settings.renderDistance), sky,
                 target.hit ? std::optional<glm::ivec3>{target.block} : std::nullopt);
+    drawDrops(sky);
 
     m_hud.crosshair(fbSize);
-    m_hud.hotbar(fbSize, m_selectedSlot, m_hotbar);
+
+    m_hud.hotbar(fbSize, m_selectedSlot, m_inventory.hotbar(), survival);
+
+    // Mining feedback: a progress bar just above the crosshair.
+    if (survival && m_miningProgress > 0.0f && target.hit) {
+        const float hardness = blockInfo(m_world->blockAt(target.block)).hardness;
+        const float frac = std::clamp(m_miningProgress / std::max(hardness, 0.01f), 0.0f, 1.0f);
+        const float cx = static_cast<float>(fbSize.x) * 0.5f;
+        const float cy = static_cast<float>(fbSize.y) * 0.5f + 24.0f;
+        m_hud.rect(cx - 42.0f, cy, 84.0f, 8.0f, Hud::RectStyle::Dim);
+        m_hud.rect(cx - 40.0f, cy + 2.0f, 80.0f * frac, 4.0f, Hud::RectStyle::Bright);
+    }
+
+    if (m_inventoryOpen) {
+        drawInventoryUi(fbSize);
+    }
     if (m_showDebug) {
         drawDebugOverlay(fbSize, target);
+    }
+}
+
+void Application::drawDrops(const SkyState& sky) {
+    const auto drops = m_drops.all();
+    if (drops.empty()) {
+        return;
+    }
+    std::vector<Renderer::DropDraw> draws;
+    draws.reserve(drops.size());
+    for (const Drop& drop : drops) {
+        const glm::ivec3 cell{static_cast<int>(std::floor(drop.position.x)),
+                              static_cast<int>(std::floor(drop.position.y)),
+                              static_cast<int>(std::floor(drop.position.z))};
+        const std::uint8_t packed = m_world->lightPackedAt(cell);
+        const float skyPart =
+            static_cast<float>(Chunk::skyLevel(packed)) / 15.0f * sky.skyLight;
+        const float blockPart = static_cast<float>(Chunk::blockLevel(packed)) / 15.0f;
+        const float bob = 0.06f * std::sin(drop.age * 2.5f);
+        draws.push_back(Renderer::DropDraw{
+            drop.position + glm::vec3{0.0f, bob, 0.0f},
+            drop.type,
+            std::max({skyPart, blockPart, 0.06f}),
+        });
+    }
+    m_renderer.drawDrops(draws);
+}
+
+void Application::drawInventoryUi(const glm::ivec2& fbSize) {
+    const auto width = static_cast<float>(fbSize.x);
+    const auto height = static_cast<float>(fbSize.y);
+    m_hud.rect(0.0f, 0.0f, width, height, Hud::RectStyle::Dim);
+
+    constexpr float kSlot = 52.0f;
+    constexpr float kGap = 6.0f;
+    const float gridW = Inventory::HotbarSize * kSlot + (Inventory::HotbarSize - 1) * kGap;
+    const float startX = width * 0.5f - gridW * 0.5f;
+    const float gridTop = height * 0.5f + 80.0f;
+
+    const bool creative = m_currentWorld.mode == GameMode::Creative;
+    const float titleScale = 4.0f;
+    m_hud.text(width * 0.5f - Hud::textWidth("INVENTORY", titleScale) * 0.5f,
+               gridTop + (creative ? 290.0f : 70.0f), titleScale, "INVENTORY");
+
+    const glm::vec2 mouse = mouseUiPosition(fbSize);
+    const bool clicked = m_input.wasMousePressed(GLFW_MOUSE_BUTTON_LEFT);
+
+    // Creative: an infinite source palette of every placeable block above
+    // the grid. Clicking grabs a full stack onto the cursor.
+    if (creative) {
+        float px = startX;
+        float py = gridTop + 2.0f * (kSlot + kGap) + 26.0f;
+        m_hud.text(startX, py + kSlot + 30.0f, 2.5f, "ALL BLOCKS");
+        for (int t = 1; t < static_cast<int>(BlockType::Count); ++t) {
+            const auto type = static_cast<BlockType>(t);
+            if (type == BlockType::Bedrock) {
+                continue;
+            }
+            const ItemStack sample{type, 1};
+            const bool hovered = mouse.x >= px && mouse.x <= px + kSlot && mouse.y >= py &&
+                                 mouse.y <= py + kSlot;
+            if (hovered) {
+                m_hud.rect(px - 2.0f, py - 2.0f, kSlot + 4.0f, kSlot + 4.0f,
+                           Hud::RectStyle::Bright);
+            }
+            m_hud.itemSlot(px, py, kSlot, sample, false);
+            if (hovered && clicked) {
+                m_held = ItemStack{type, kMaxStackSize};
+                m_heldFrom = -1;
+            }
+            px += kSlot + kGap;
+            if (px + kSlot > startX + gridW + 0.5f) {
+                px = startX;
+                py -= kSlot + kGap;
+            }
+        }
+    }
+
+    // Grid rows (slots 9..35) on top, hotbar row (0..8) separated below.
+    for (int index = 0; index < Inventory::Size; ++index) {
+        const int column = index % Inventory::HotbarSize;
+        const bool isHotbar = index < Inventory::HotbarSize;
+        const int gridRow = isHotbar ? 0 : (index / Inventory::HotbarSize) - 1;
+        const float x = startX + static_cast<float>(column) * (kSlot + kGap);
+        const float y = isHotbar ? gridTop - 3.0f * (kSlot + kGap) - 18.0f
+                                 : gridTop - static_cast<float>(gridRow) * (kSlot + kGap);
+
+        ItemStack& stack = m_inventory.slot(index);
+        const bool hovered =
+            mouse.x >= x && mouse.x <= x + kSlot && mouse.y >= y && mouse.y <= y + kSlot;
+        if (hovered) {
+            m_hud.rect(x - 2.0f, y - 2.0f, kSlot + 4.0f, kSlot + 4.0f, Hud::RectStyle::Bright);
+        }
+        m_hud.itemSlot(x, y, kSlot, stack, true);
+
+        if (!hovered || !clicked) {
+            continue;
+        }
+        if (m_held.empty()) {
+            if (!stack.empty()) {
+                m_held = stack;
+                stack = ItemStack{};
+                m_heldFrom = index;
+            }
+        } else if (stack.empty()) {
+            stack = m_held;
+            m_held = ItemStack{};
+        } else if (stack.type == m_held.type && stack.count < kMaxStackSize) {
+            const int moved = std::min(m_held.count, kMaxStackSize - stack.count);
+            stack.count += moved;
+            m_held.count -= moved;
+            if (m_held.count == 0) {
+                m_held = ItemStack{};
+            }
+        } else {
+            std::swap(stack, m_held);
+            m_heldFrom = index;
+        }
+    }
+
+    if (!m_held.empty()) {
+        m_hud.itemSlot(mouse.x - kSlot * 0.5f, mouse.y - kSlot * 0.5f, kSlot, m_held, true);
     }
 }
 
@@ -431,7 +680,8 @@ void Application::drawDebugOverlay(const glm::ivec2& fbSize, const RaycastHit& t
     const std::array<std::string, 12> lines{
         std::format("claudecraft {} | {:.0f} fps ({:.2f} ms)", kDebugBuild ? "debug" : "release",
                     m_smoothedFps, m_smoothedFps > 0.0 ? 1000.0 / m_smoothedFps : 0.0),
-        std::format("World: {} Seed: {}", m_currentWorld.name, m_currentWorld.seed),
+        std::format("World: {} Seed: {} [{}]", m_currentWorld.name, m_currentWorld.seed,
+                    m_currentWorld.mode == GameMode::Survival ? "survival" : "creative"),
         std::format("time: {:02}:{:02} (day fraction {:.3f})", clockHour, clockMinute,
                     m_worldTime),
         std::format("biome: {}",
@@ -634,8 +884,12 @@ void Application::run() {
                 }
                 break;
             case GameState::Playing:
-                setPaused(true);
-                accumulator = 0.0;
+                if (m_inventoryOpen) {
+                    setInventoryOpen(false);
+                } else {
+                    setPaused(true);
+                    accumulator = 0.0;
+                }
                 break;
             case GameState::Paused:
                 setPaused(false);

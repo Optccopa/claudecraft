@@ -11,6 +11,7 @@
 
 #include <cstddef>
 #include <optional>
+#include <span>
 #include <unordered_map>
 
 namespace cc {
@@ -38,6 +39,14 @@ public:
 
     void render(const FrameParams& params);
 
+    struct DropDraw {
+        glm::vec3 position;  // cube center
+        BlockType type;
+        float light;         // 0..1, sampled from the drop's cell
+    };
+    // Call after render(): reuses the frame's chunk-shader state.
+    void drawDrops(std::span<const DropDraw> drops);
+
     [[nodiscard]] const TextureAtlas& atlas() const noexcept { return m_atlas; }
     [[nodiscard]] std::size_t meshCount() const noexcept { return m_chunks.size(); }
     [[nodiscard]] std::size_t drawnLastFrame() const noexcept { return m_drawnLastFrame; }
@@ -55,11 +64,13 @@ private:
     };
 
     [[nodiscard]] static GpuMesh makeGpuMesh(const ChunkMeshData& data);
+    [[nodiscard]] const GpuMesh& dropMesh(BlockType type);
 
     gl::ShaderProgram m_chunkShader;
     gl::ShaderProgram m_lineShader;
     TextureAtlas m_atlas;
     std::unordered_map<ChunkCoord, ChunkMeshes, ChunkCoordHash> m_chunks;
+    std::unordered_map<BlockType, GpuMesh> m_dropMeshes; // built lazily per type
 
     gl::VertexArray m_highlightVao;
     gl::Buffer m_highlightVbo;

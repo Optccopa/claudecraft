@@ -10,6 +10,8 @@ uniform vec3 uChunkOrigin;
 uniform vec3 uCameraPos;
 uniform float uSkyLight; // day/night scale applied to the sky channel
 uniform vec3 uSunDir;
+uniform float uScale;      // 1.0 for chunks; <1 for dropped-item mini-cubes
+uniform float uLightScale; // 1.0 for chunks; drops bake their cell's light here
 
 out vec2 vUv;
 flat out uint vTile;
@@ -25,7 +27,7 @@ const vec3 kNormals[6] = vec3[6](
 const float kAoCurve[4] = float[4](0.45, 0.65, 0.85, 1.0);
 
 void main() {
-    vec3 worldPos = uChunkOrigin + aPos;
+    vec3 worldPos = uChunkOrigin + aPos * uScale;
     gl_Position = uViewProj * vec4(worldPos, 1.0);
     vUv = aUv;
     vTile = aData & 0xFFu;
@@ -39,6 +41,6 @@ void main() {
     float diffuse = max(dot(normal, uSunDir), 0.0);
     float skyContrib = sky * uSkyLight * (0.45 + 0.55 * diffuse);
     float light = max(max(skyContrib, blockLight), 0.03);
-    vLight = light * ao;
+    vLight = light * ao * uLightScale;
     vDist = distance(worldPos, uCameraPos);
 }

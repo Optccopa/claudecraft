@@ -10,6 +10,7 @@ the same change as the code (see "Documentation" in [CLAUDE.md](../CLAUDE.md)).
 | [threading.md](threading.md) | worker pipeline, snapshots, revision protocol, shutdown | `World`, `ThreadPool`, queues, any new parallel work |
 | [meshing.md](meshing.md) | greedy meshing, AO, vertex format, fract atlas trick | `ChunkMesher`, `ChunkVertex`, chunk shaders |
 | [terrain.md](terrain.md) | height/biomes, caves, ores, trees, determinism rules | `TerrainGenerator`, `Noise` |
-| [lighting.md](lighting.md) | sky/block light channels, BFS rules, threading split, smooth lighting | `LightEngine`, light bits in `Chunk`/`ChunkMesher` |
+| [lighting.md](lighting.md) | sky/block light channels, BFS rules, threading split, smooth lighting, day/night | `LightEngine`, light bits in `Chunk`/`ChunkMesher`, `render/Sky` |
+| [gameplay.md](gameplay.md) | game modes, inventory, mining, drops | `Inventory`, `Drops`, `Item.hpp`, edit handling in `Application` |
 | [rendering.md](rendering.md) | passes, shader contracts, atlas, HUD, GL debug | `Renderer`, `Hud`, `TextureAtlas`, `shaders/` |
 | [save-format.md](save-format.md) | world dirs + meta, binary layout, validation, versioning | `WorldSave`, `WorldList`, `BlockType` enum |

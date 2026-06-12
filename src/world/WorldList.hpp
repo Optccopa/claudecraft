@@ -1,5 +1,7 @@
 #pragma once
 
+#include "world/Item.hpp"
+
 #include <cstdint>
 #include <filesystem>
 #include <string>
@@ -12,6 +14,7 @@ struct WorldInfo {
     std::string name;          // display name == directory name
     std::uint32_t seed = 0;
     double timeOfDay = 0.05;   // fraction of a day; 0 = sunrise, 0.25 = noon
+    GameMode mode = GameMode::Creative;
     std::filesystem::path directory;
 };
 
@@ -25,7 +28,7 @@ namespace worldlist {
 // Sanitises the name into a directory (suffixing on collision), writes
 // world.meta, and returns the new world's info.
 [[nodiscard]] WorldInfo create(const std::filesystem::path& savesRoot, std::string_view name,
-                               std::uint32_t seed);
+                               std::uint32_t seed, GameMode mode);
 
 // Rewrites world.meta with the info's current mutable state (time of day).
 void saveMeta(const WorldInfo& info);

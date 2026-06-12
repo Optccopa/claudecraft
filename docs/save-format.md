@@ -2,17 +2,24 @@
 
 ## World directories
 
-Each world is a directory `saves/<name>/` containing a `world.meta` plus one
-chunk file per modified chunk. `world.meta` is line-oriented text, version 2:
+Each world is a directory `saves/<name>/` containing a `world.meta`, an
+optional `player.dat`, plus one chunk file per modified chunk. `world.meta`
+is line-oriented text, version 3:
 
 ```
-claudecraft-world 2
+claudecraft-world 3
 <seed>
 <timeOfDay>          (day fraction 0..1; v1 files omit it, defaulting 0.05)
+<mode>               ("creative" | "survival"; pre-v3 defaults creative)
 ```
 
-Readers accept v1 and v2; writers emit v2. The meta is rewritten on quit (it
+Readers accept v1–v3; writers emit v3. The meta is rewritten on quit (it
 carries the world clock), not on every save.
+
+`player.dat` holds the inventory: u16 version (1), then 36 × {u8 blockId,
+u8 count} in slot order (hotbar first). Unknown versions or corrupt entries
+discard the file — the inventory resets rather than corrupting (see
+[gameplay.md](gameplay.md)).
 
 `worldlist::list` scans `saves/` for directories with a parseable meta;
 legacy pre-meta directories named `world_<seed>` are recognised by name.

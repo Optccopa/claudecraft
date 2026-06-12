@@ -24,6 +24,45 @@ void setupChunkAttributes() {
                            reinterpret_cast<const void*>(offsetof(ChunkVertex, data)));
 }
 
+// Unit cube centered on the origin for dropped items, in the chunk vertex
+// format: full AO, light baked as block-channel 15 so the shader's sun and
+// sky scaling don't apply — uLightScale carries the drop's sampled light.
+[[nodiscard]] ChunkMeshData makeDropMeshData(BlockType type) {
+    struct Face {
+        std::array<glm::vec3, 4> corners;
+        std::uint32_t normalIndex;
+        std::uint8_t tile;
+    };
+    const BlockInfo& info = blockInfo(type);
+    const float h = 0.5f;
+    const std::array<Face, 6> faces{{
+        {{glm::vec3{h, -h, -h}, {h, h, -h}, {h, h, h}, {h, -h, h}}, 0, info.sideTile},
+        {{glm::vec3{-h, -h, -h}, {-h, -h, h}, {-h, h, h}, {-h, h, -h}}, 1, info.sideTile},
+        {{glm::vec3{-h, h, -h}, {-h, h, h}, {h, h, h}, {h, h, -h}}, 2, info.topTile},
+        {{glm::vec3{-h, -h, -h}, {h, -h, -h}, {h, -h, h}, {-h, -h, h}}, 3, info.bottomTile},
+        {{glm::vec3{-h, -h, h}, {h, -h, h}, {h, h, h}, {-h, h, h}}, 4, info.sideTile},
+        {{glm::vec3{-h, -h, -h}, {-h, h, -h}, {h, h, -h}, {h, -h, -h}}, 5, info.sideTile},
+    }};
+    constexpr std::array<std::array<float, 2>, 4> kUvs{{{0, 0}, {1, 0}, {1, 1}, {0, 1}}};
+
+    ChunkMeshData data;
+    for (const Face& face : faces) {
+        const auto base = static_cast<std::uint32_t>(data.vertices.size());
+        for (std::size_t i = 0; i < 4; ++i) {
+            data.vertices.push_back(ChunkVertex{
+                face.corners[i].x, face.corners[i].y, face.corners[i].z,
+                kUvs[i][0], kUvs[i][1],
+                static_cast<std::uint32_t>(face.tile) | (3u << 8) | (face.normalIndex << 10) |
+                    (15u << 17),
+            });
+        }
+        for (const std::uint32_t i : {0u, 1u, 2u, 0u, 2u, 3u}) {
+            data.indices.push_back(base + i);
+        }
+    }
+    return data;
+}
+
 // 12 cube edges as line segments, unit cube at the origin.
 constexpr std::array<float, 72> kCubeEdges{
     0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0,
@@ -93,6 +132,8 @@ void Renderer::render(const FrameParams& params) {
     m_chunkShader.setFloat("uFogEnd", params.fogEnd);
     m_chunkShader.setFloat("uSkyLight", params.skyLight);
     m_chunkShader.setVec3("uSunDir", params.sunDirection);
+    m_chunkShader.setFloat("uScale", 1.0f);
+    m_chunkShader.setFloat("uLightScale", 1.0f);
     m_chunkShader.setInt("uAtlas", 0);
     m_atlas.bind(0);
 
@@ -158,6 +199,33 @@ void Renderer::render(const FrameParams& params) {
         m_highlightVao.bind();
         glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(kCubeEdges.size() / 3));
     }
+    glBindVertexArray(0);
+}
+
+const Renderer::GpuMesh& Renderer::dropMesh(BlockType type) {
+    if (const auto it = m_dropMeshes.find(type); it != m_dropMeshes.end()) {
+        return it->second;
+    }
+    return m_dropMeshes.emplace(type, makeGpuMesh(makeDropMeshData(type))).first->second;
+}
+
+// Uniform state (view-projection, fog, atlas binding) carries over from
+// render() on the same program; only origin, scale and light change per drop.
+void Renderer::drawDrops(std::span<const DropDraw> drops) {
+    if (drops.empty()) {
+        return;
+    }
+    m_chunkShader.use();
+    m_chunkShader.setFloat("uScale", 0.3f);
+    for (const DropDraw& drop : drops) {
+        m_chunkShader.setFloat("uLightScale", drop.light);
+        m_chunkShader.setVec3("uChunkOrigin", drop.position);
+        const GpuMesh& mesh = dropMesh(drop.type);
+        mesh.vao.bind();
+        glDrawElements(GL_TRIANGLES, mesh.indexCount, GL_UNSIGNED_INT, nullptr);
+    }
+    m_chunkShader.setFloat("uScale", 1.0f);
+    m_chunkShader.setFloat("uLightScale", 1.0f);
     glBindVertexArray(0);
 }
 

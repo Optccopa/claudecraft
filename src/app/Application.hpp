@@ -5,7 +5,9 @@
 #include "core/ThreadPool.hpp"
 #include "input/Input.hpp"
 #include "player/Camera.hpp"
+#include "player/Inventory.hpp"
 #include "player/Player.hpp"
+#include "world/Drops.hpp"
 #include "render/Hud.hpp"
 #include "render/Renderer.hpp"
 #include "render/Sky.hpp"
@@ -54,6 +56,10 @@ private:
                                   std::string_view value);
 
     void handleGameplayInput(float frameDt, const RaycastHit& target);
+    void handleBlockEdits(float frameDt, const RaycastHit& target);
+    void setInventoryOpen(bool open);
+    void drawInventoryUi(const glm::ivec2& fbSize);
+    void drawDrops(const SkyState& sky);
     void drawDebugOverlay(const glm::ivec2& fbSize, const RaycastHit& target);
     void renderWorld(World& world, const glm::ivec2& fbSize, const glm::vec3& eye, float yawDeg,
                      float pitchDeg, float fogEnd, const SkyState& sky,
@@ -93,10 +99,14 @@ private:
     WorldInfo m_currentWorld;
     bool m_showDebug = false;
 
-    std::array<BlockType, 9> m_hotbar{
-        BlockType::Stone, BlockType::Dirt,   BlockType::Grass,
-        BlockType::Sand,  BlockType::Wood,   BlockType::Leaves,
-        BlockType::Plank, BlockType::Snow,   BlockType::Glowstone};
+    Inventory m_inventory;
+    Drops m_drops;
+    bool m_inventoryOpen = false;
+    ItemStack m_held;       // stack picked up by the cursor in the inventory UI
+    int m_heldFrom = -1;    // slot it came from (returned there on close)
+    GameMode m_createMode = GameMode::Creative; // worlds-screen picker state
+    glm::ivec3 m_miningCell{0};
+    float m_miningProgress = 0.0f;
     int m_selectedSlot = 0;
     float m_editCooldown = 0.0f;
 

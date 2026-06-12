@@ -2,7 +2,7 @@
 
 #include "gl/GlObjects.hpp"
 #include "gl/Shader.hpp"
-#include "world/Block.hpp"
+#include "world/Item.hpp"
 
 #include <glm/vec2.hpp>
 
@@ -34,8 +34,12 @@ public:
     [[nodiscard]] static float textWidth(std::string_view str, float scale);
 
     void crosshair(const glm::ivec2& framebufferSize);
+    // showCounts: survival draws stack sizes; creative slots are infinite.
     void hotbar(const glm::ivec2& framebufferSize, int selectedSlot,
-                std::span<const BlockType> blocks);
+                std::span<const ItemStack> slots, bool showCounts);
+    // One inventory-style slot anywhere on screen (shared by hotbar and the
+    // inventory grid): dim background, icon, optional count.
+    void itemSlot(float x, float y, float size, const ItemStack& stack, bool showCount);
 
     void flush(const glm::ivec2& framebufferSize, const TextureAtlas& atlas);
 

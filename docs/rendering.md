@@ -32,6 +32,7 @@ the packed `data` bitfield and the `fract()` atlas trick). Uniforms:
 | `uSkyLight` | 0..1 scale on the vertex sky-light channel (`FrameParams::skyLight`) |
 | `uSunDir` | unit sun direction from `render/Sky` (`FrameParams::sunDirection`) |
 | `uAlpha` | 1.0 opaque pass, 0.65 water pass |
+| `uScale` / `uLightScale` | 1.0 for chunk passes; `Renderer::drawDrops` shrinks per-type unit cubes to 0.3 and feeds each drop's sampled cell light (see [gameplay.md](gameplay.md)) |
 
 Sky colour, sun direction and the sky-light scale all come from one
 `skyStateAt(timeOfDay)` call (see the day/night section of

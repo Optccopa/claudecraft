@@ -34,6 +34,7 @@ struct BlockInfo {
     bool opaque;           // hides adjacent faces and stops light
     bool solid;            // collides with the player
     bool breakable;
+    float hardness;        // seconds to mine in survival
 };
 
 [[nodiscard]] const BlockInfo& blockInfo(BlockType type) noexcept;

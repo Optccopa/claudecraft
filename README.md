@@ -24,13 +24,14 @@ If your MSVC version differs, update `compilerPath` in `.vscode/c_cpp_properties
 | WASD + mouse | Move / look |
 | Space | Jump (walk) / ascend (fly) |
 | Left Shift | Descend (fly) |
-| F | Toggle fly |
-| Left / right click | Break / place block (hold to repeat) |
-| 1–8, scroll wheel | Select hotbar slot |
-| F3 | Debug overlay (fps, position, target block, chunk stats) |
-| Esc | Pause menu (resume / quit to menu) |
+| F | Toggle fly (creative only) |
+| Left / right click | Break / place block (survival: hold to mine, blocks drop) |
+| 1–9, scroll wheel | Select hotbar slot |
+| E | Inventory (creative gets an infinite ALL BLOCKS palette) |
+| F3 | Debug overlay (fps, position, light, biome, target, chunk stats) |
+| Esc | Close inventory / pause menu (resume / settings / quit to menu) |
 
-The game opens on a main menu with a randomly seeded terrain fly-over in the background. Play leads to the worlds screen: type a name and CREATE a new world (random seed), or load an existing one from the list. Pause quits back to the menu. The window title shows the world, FPS, position, and loaded/drawn chunk counts.
+The game opens on a main menu with a randomly seeded terrain fly-over in the background. Play leads to the worlds screen: type a name, pick creative or survival, and CREATE (random seed) — or load an existing world from the list. Worlds have a persistent day/night cycle, inventory, caves with ores, and biomes (plains, forest, desert, mountains, ocean). Pause quits back to the menu. The window title shows the world, FPS, position, and loaded/drawn chunk counts.
 
 Settings (from the main menu or pause) has VIDEO (render distance, FOV, vsync, fullscreen) and CONTROLS (mouse sensitivity, invert Y) categories; values apply immediately and persist to `settings.txt`.
 
