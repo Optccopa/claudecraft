@@ -38,7 +38,9 @@ offset  size  field
 ```
 
 Blocks stream in chunk index order `(x·16 + z)·256 + y` — y fastest, which is
-what makes RLE effective (long vertical runs of stone/air/water).
+what makes RLE effective (long vertical runs of stone/air/water). Light is
+never stored: it's derived data, recomputed on load (see
+[lighting.md](lighting.md)).
 
 ## Validation and failure policy
 

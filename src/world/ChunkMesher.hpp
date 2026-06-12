@@ -12,7 +12,8 @@ namespace cc {
 struct ChunkVertex {
     float x, y, z; // chunk-local position
     float u, v;    // block-space texcoords; fract() in the shader tiles the atlas
-    std::uint32_t data; // tile | aoCorner << 8 | normalIndex << 10
+    // tile | aoCorner << 8 | normalIndex << 10 | skyLight << 13 | blockLight << 17
+    std::uint32_t data;
 };
 static_assert(sizeof(ChunkVertex) == 24);
 
@@ -32,7 +33,8 @@ struct MeshInput {
 
     ChunkCoord coord;
     std::uint32_t revision = 0;
-    std::vector<BlockType> blocks; // PaddedX * PaddedZ * SizeY
+    std::vector<BlockType> blocks;     // PaddedX * PaddedZ * SizeY
+    std::vector<std::uint8_t> light;   // same layout, packed sky | block << 4
 
     // x and z accept [-1, Size]; any y outside [0, SizeY) reads as Air.
     [[nodiscard]] BlockType at(int x, int y, int z) const noexcept {
@@ -41,6 +43,18 @@ struct MeshInput {
         }
         const int idx = ((x + 1) * PaddedZ + (z + 1)) * Chunk::SizeY + y;
         return blocks[static_cast<std::size_t>(idx)];
+    }
+
+    // Above the world is full sky; below is darkness.
+    [[nodiscard]] std::uint8_t lightAt(int x, int y, int z) const noexcept {
+        if (y >= Chunk::SizeY) {
+            return Chunk::packLight(15, 0);
+        }
+        if (y < 0) {
+            return 0;
+        }
+        const int idx = ((x + 1) * PaddedZ + (z + 1)) * Chunk::SizeY + y;
+        return light[static_cast<std::size_t>(idx)];
     }
 };
 

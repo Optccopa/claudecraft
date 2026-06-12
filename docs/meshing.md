@@ -19,10 +19,10 @@ Visibility rules:
 - Water: face shown only against **air**, so a lake is a single translucent
   surface instead of stacked interior faces.
 
-Two cells merge only if their *entire* mask entry is equal — block type
-**and** the four packed AO corner values. Merging across different AO would
-smear shading; this is the standard correctness/coverage tradeoff for greedy
-meshing with AO.
+Two cells merge only if their *entire* mask entry is equal — block type, the
+four packed AO corner values, and the per-corner smoothed light. Merging
+across different shading would smear it; this is the standard
+correctness/coverage tradeoff for greedy meshing with baked lighting.
 
 ## Ambient occlusion
 
@@ -56,7 +56,11 @@ with noisy tiles — revisit only if a directional texture is ever added.
 |---|---|---|
 | 0 | `float x,y,z` | chunk-local; shader adds `uChunkOrigin` |
 | 12 | `float u,v` | **block-space**, runs 0..width / 0..height across a merged quad |
-| 20 | `uint32 data` | bits 0–7 atlas tile, 8–9 this corner's AO, 10–12 normal index |
+| 20 | `uint32 data` | bits 0–7 atlas tile, 8–9 this corner's AO, 10–12 normal index, 13–16 sky light, 17–20 block light |
+
+Per-corner light is smoothed (4-cell average) and part of the mask equality —
+see [lighting.md](lighting.md). Quads only merge where AO **and** both light
+channels match at every corner.
 
 `data` is consumed via `glVertexAttribIPointer` (integer attribute — a plain
 `glVertexAttribPointer` would convert to float and corrupt the bitfield).

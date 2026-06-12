@@ -5,6 +5,7 @@
 #include "world/Chunk.hpp"
 #include "world/ChunkCoord.hpp"
 #include "world/ChunkMesher.hpp"
+#include "world/LightEngine.hpp"
 #include "world/TerrainGenerator.hpp"
 #include "world/WorldSave.hpp"
 
@@ -53,6 +54,12 @@ public:
     // False when the chunk isn't loaded or the edit is rejected (e.g. bedrock).
     bool setBlock(const glm::ivec3& worldPos, BlockType type);
 
+    // Packed light (sky | block << 4). Above the world reads as full sky;
+    // below it and in unloaded chunks as darkness. Writes bump the mesh
+    // revisions of every chunk whose mesh samples the cell.
+    [[nodiscard]] std::uint8_t lightPackedAt(const glm::ivec3& worldPos) const noexcept;
+    bool setLightPacked(const glm::ivec3& worldPos, std::uint8_t packed) noexcept;
+
     [[nodiscard]] bool isChunkLoadedAt(const glm::vec3& worldPos) const noexcept;
     // Streaming adapts on the next update(): new ring loads, distant unloads.
     void setRenderDistance(int distance) noexcept { m_renderDistance = distance; }
@@ -84,6 +91,7 @@ private:
 
     [[nodiscard]] Chunk* chunkAt(ChunkCoord coord) noexcept;
     [[nodiscard]] const Chunk* chunkAt(ChunkCoord coord) const noexcept;
+    void bumpMeshRevisionsAround(Chunk& chunk, int lx, int lz) noexcept;
     [[nodiscard]] bool neighborsLoaded(ChunkCoord coord) const noexcept;
     [[nodiscard]] std::shared_ptr<const MeshInput> makeMeshInput(const Chunk& center) const;
 
@@ -91,6 +99,7 @@ private:
 
     TerrainGenerator m_generator;
     WorldSave m_save;
+    LightEngine m_lightEngine;
     ThreadPool& m_pool;
     int m_renderDistance;
 

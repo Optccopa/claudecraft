@@ -47,6 +47,30 @@ public:
     }
     [[nodiscard]] std::array<BlockType, BlockCount>& blocksMutable() noexcept { return m_blocks; }
 
+    // Light is derived data (recomputed on load), packed sky | block << 4.
+    // Same indexing as blocks, so light columns memcpy alongside block columns.
+    [[nodiscard]] std::uint8_t lightAt(int x, int y, int z) const noexcept {
+        return m_light[static_cast<std::size_t>(index(x, y, z))];
+    }
+    void setLight(int x, int y, int z, std::uint8_t packed) noexcept {
+        m_light[static_cast<std::size_t>(index(x, y, z))] = packed;
+    }
+    [[nodiscard]] const std::uint8_t* lightColumn(int x, int z) const noexcept {
+        return m_light.data() + index(x, 0, z);
+    }
+    [[nodiscard]] std::array<std::uint8_t, BlockCount>& lightMutable() noexcept { return m_light; }
+
+    [[nodiscard]] static constexpr std::uint8_t skyLevel(std::uint8_t packed) noexcept {
+        return packed & 0x0Fu;
+    }
+    [[nodiscard]] static constexpr std::uint8_t blockLevel(std::uint8_t packed) noexcept {
+        return packed >> 4;
+    }
+    [[nodiscard]] static constexpr std::uint8_t packLight(std::uint8_t sky,
+                                                          std::uint8_t block) noexcept {
+        return static_cast<std::uint8_t>(sky | (block << 4));
+    }
+
     [[nodiscard]] ChunkCoord coord() const noexcept { return m_coord; }
 
     [[nodiscard]] bool isModified() const noexcept { return m_modified; }
@@ -64,6 +88,7 @@ public:
 
 private:
     std::array<BlockType, BlockCount> m_blocks{};
+    std::array<std::uint8_t, BlockCount> m_light{};
     ChunkCoord m_coord;
     bool m_modified = false;
     std::uint32_t m_meshRevision = 1;

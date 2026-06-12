@@ -76,6 +76,14 @@ struct Rgba {
         return shade(238, 242, 245, 1.0f - 0.06f * n);
     case 11: // bedrock
         return shade(70, 70, 70, 1.0f - 0.35f * n);
+    case 16: // glowstone: warm base with bright nuggets
+    {
+        const float blob = pixelNoise(px / 2, py / 2, 511);
+        if (blob > 0.55f) {
+            return shade(252, 234, 150, 1.0f - 0.08f * n);
+        }
+        return shade(214, 168, 92, 1.0f - 0.12f * n);
+    }
     case 12: // coal ore
     case 13: // iron ore
     case 14: // gold ore
@@ -142,7 +150,7 @@ TextureAtlas TextureAtlas::create() {
             return TextureAtlas{std::move(texture)};
         }
         logError(std::format("ignoring '{}': {}", path,
-                             data == nullptr ? stbi_failure_reason() : "must be square, side % 4 == 0"));
+                             data == nullptr ? stbi_failure_reason() : "must be square, side % 8 == 0"));
     }
 
     const auto pixels = buildProceduralAtlas();

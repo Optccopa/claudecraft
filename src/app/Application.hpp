@@ -89,9 +89,10 @@ private:
     WorldInfo m_currentWorld;
     bool m_showDebug = false;
 
-    std::array<BlockType, 8> m_hotbar{BlockType::Stone, BlockType::Dirt,  BlockType::Grass,
-                                      BlockType::Sand,  BlockType::Wood,  BlockType::Leaves,
-                                      BlockType::Plank, BlockType::Snow};
+    std::array<BlockType, 9> m_hotbar{
+        BlockType::Stone, BlockType::Dirt,   BlockType::Grass,
+        BlockType::Sand,  BlockType::Wood,   BlockType::Leaves,
+        BlockType::Plank, BlockType::Snow,   BlockType::Glowstone};
     int m_selectedSlot = 0;
     float m_editCooldown = 0.0f;
 

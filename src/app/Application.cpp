@@ -189,7 +189,7 @@ void Application::renderWorld(World& world, const glm::ivec2& fbSize, const glm:
     m_camera.setAspect(static_cast<float>(fbSize.x) / static_cast<float>(fbSize.y));
     const glm::mat4 viewProj = m_camera.projection() * Camera::view(eye, yawDeg, pitchDeg);
     m_renderer.render(Renderer::FrameParams{viewProj, eye, kSkyColor, fogEnd * 0.65f, fogEnd,
-                                            highlight});
+                                            1.0f, highlight});
 }
 
 void Application::handleGameplayInput(float frameDt, const RaycastHit& target) {
@@ -212,7 +212,7 @@ void Application::handleGameplayInput(float frameDt, const RaycastHit& target) {
     move.descend = m_input.isDown(GLFW_KEY_LEFT_SHIFT);
     m_player.setInput(move);
 
-    for (int key = GLFW_KEY_1; key <= GLFW_KEY_8; ++key) {
+    for (int key = GLFW_KEY_1; key <= GLFW_KEY_9; ++key) {
         if (m_input.wasPressed(key)) {
             m_selectedSlot = key - GLFW_KEY_1;
         }
@@ -401,10 +401,20 @@ void Application::drawDebugOverlay(const glm::ivec2& fbSize, const RaycastHit& t
         facing = "north";
     }
 
-    const std::array<std::string, 9> lines{
+    const glm::vec3 eye = m_player.eyePosition(1.0f);
+    const glm::ivec3 eyeCell{static_cast<int>(std::floor(eye.x)),
+                             static_cast<int>(std::floor(eye.y)),
+                             static_cast<int>(std::floor(eye.z))};
+    const std::uint8_t eyeLight = m_world->lightPackedAt(eyeCell);
+    // The hit cell is solid (light 0); the cell in front of the face is the
+    // lit one the player actually sees.
+    const std::uint8_t targetLight =
+        target.hit ? m_world->lightPackedAt(target.previous) : 0;
+
+    const std::array<std::string, 10> lines{
         std::format("claudecraft {} | {:.0f} fps ({:.2f} ms)", kDebugBuild ? "debug" : "release",
                     m_smoothedFps, m_smoothedFps > 0.0 ? 1000.0 / m_smoothedFps : 0.0),
-        std::format("world '{}' seed {}", m_currentWorld.name, m_currentWorld.seed),
+        std::format("World: {}' Seed: {}", m_currentWorld.name, m_currentWorld.seed),
         std::format("xyz: {:.2f} / {:.2f} / {:.2f}", pos.x, pos.y, pos.z),
         std::format("chunk: {} {}  local: {} {}", chunk.x, chunk.z,
                     static_cast<int>(std::floor(pos.x)) & 15,
@@ -412,8 +422,12 @@ void Application::drawDebugOverlay(const glm::ivec2& fbSize, const RaycastHit& t
         std::format("facing: {} (yaw {:.1f} / pitch {:.1f})", facing, yaw, m_player.pitch()),
         std::format("vel: {:.2f} {:.2f} {:.2f}  [{}]", vel.x, vel.y, vel.z,
                     m_player.flying() ? "flying" : (m_player.onGround() ? "on ground" : "airborne")),
-        target.hit ? std::format("target: {} at {} {} {}", blockName(m_world->blockAt(target.block)),
-                                 target.block.x, target.block.y, target.block.z)
+        std::format("light here: sky {} block {}", Chunk::skyLevel(eyeLight),
+                    Chunk::blockLevel(eyeLight)),
+        target.hit ? std::format("target: {} at {} {} {} (sky {} block {})",
+                                 blockName(m_world->blockAt(target.block)), target.block.x,
+                                 target.block.y, target.block.z, Chunk::skyLevel(targetLight),
+                                 Chunk::blockLevel(targetLight))
                    : std::string{"target: none"},
         std::format("chunks: {} loaded, {} drawn, {} meshes", m_world->loadedChunkCount(),
                     m_renderer.drawnLastFrame(), m_renderer.meshCount()),

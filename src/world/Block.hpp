@@ -22,6 +22,7 @@ enum class BlockType : std::uint8_t {
     IronOre,
     GoldOre,
     DiamondOre,
+    Glowstone,
     Count
 };
 
@@ -29,8 +30,9 @@ struct BlockInfo {
     std::uint8_t topTile;
     std::uint8_t sideTile;
     std::uint8_t bottomTile;
-    bool opaque;     // hides adjacent faces
-    bool solid;      // collides with the player
+    std::uint8_t emission; // block light emitted, 0..15
+    bool opaque;           // hides adjacent faces and stops light
+    bool solid;            // collides with the player
     bool breakable;
 };
 

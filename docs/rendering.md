@@ -29,18 +29,21 @@ the packed `data` bitfield and the `fract()` atlas trick). Uniforms:
 | `uChunkOrigin` | chunk world origin — vertices stay chunk-local for float precision |
 | `uCameraPos` | fog distance reference |
 | `uFogStart/uFogEnd` | `fogEnd = renderDistance·16 − 8`, start = 0.65·end |
+| `uSkyLight` | 0..1 scale on the vertex sky-light channel (`FrameParams::skyLight`) |
 | `uAlpha` | 1.0 opaque pass, 0.65 water pass |
 
-Lighting is baked in the vertex shader: fixed sun direction, half-lambert
-(`0.45 + 0.55·diff`), multiplied by the AO curve `[0.45, 0.65, 0.85, 1.0]`
-(non-linear so single-occluder corners stay subtle). No shadow maps; AO plus
-face-dependent diffuse is what sells the depth.
+Per-vertex light comes baked from the mesher (two 4-bit channels, see
+[lighting.md](lighting.md)). The vertex shader computes
+`max(sky · uSkyLight · (0.45 + 0.55·diffuse), block)` with a 0.03 floor,
+then multiplies by the AO curve `[0.45, 0.65, 0.85, 1.0]` (non-linear so
+single-occluder corners stay subtle). The sun term only scales the sky
+channel — glowstone-lit cave walls ignore sun direction. No shadow maps.
 
 ## Texture atlas
 
-4×4 tiles, sampled `GL_NEAREST`, **no mipmaps** (hard requirement — see
+8×8 tiles, sampled `GL_NEAREST`, **no mipmaps** (hard requirement — see
 meshing doc). `TextureAtlas::create` prefers `textures/atlas.png` (square,
-side divisible by 4, rows flipped on load because GL's origin is
+side divisible by 8, rows flipped on load because GL's origin is
 bottom-left) and falls back to a deterministic procedural atlas. Tile ids
 live in `Block.cpp`'s table; tile 0 is bottom-left of the texture. Unassigned
 tiles render magenta on purpose.

@@ -31,6 +31,7 @@ public:
         glm::vec3 fogColor;
         float fogStart;
         float fogEnd;
+        float skyLight; // 0..1 scale on the sky light channel
         std::optional<glm::ivec3> highlightedBlock;
     };
 

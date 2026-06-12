@@ -73,6 +73,26 @@ BlockType World::blockAt(const glm::ivec3& p) const noexcept {
     return chunk->at(p.x & 15, p.y, p.z & 15);
 }
 
+// Edits within one block of a border change the neighbour's face culling,
+// AO and light sampling, so its mesh must rebuild too (diagonals included).
+void World::bumpMeshRevisionsAround(Chunk& chunk, int lx, int lz) noexcept {
+    chunk.bumpMeshRevision();
+    const int dxLo = (lx == 0) ? -1 : 0;
+    const int dxHi = (lx == Chunk::SizeX - 1) ? 1 : 0;
+    const int dzLo = (lz == 0) ? -1 : 0;
+    const int dzHi = (lz == Chunk::SizeZ - 1) ? 1 : 0;
+    for (int dx = dxLo; dx <= dxHi; ++dx) {
+        for (int dz = dzLo; dz <= dzHi; ++dz) {
+            if (dx == 0 && dz == 0) {
+                continue;
+            }
+            if (Chunk* neighbor = chunkAt({chunk.coord().x + dx, chunk.coord().z + dz})) {
+                neighbor->bumpMeshRevision();
+            }
+        }
+    }
+}
+
 bool World::setBlock(const glm::ivec3& p, BlockType type) {
     if (p.y < 0 || p.y >= Chunk::SizeY) {
         return false;
@@ -83,29 +103,43 @@ bool World::setBlock(const glm::ivec3& p, BlockType type) {
     }
     const int lx = p.x & 15;
     const int lz = p.z & 15;
-    if (!blockInfo(chunk->at(lx, p.y, lz)).breakable && type == BlockType::Air) {
+    const BlockType oldType = chunk->at(lx, p.y, lz);
+    if (!blockInfo(oldType).breakable && type == BlockType::Air) {
         return false;
     }
     chunk->set(lx, p.y, lz, type);
     chunk->markModified();
-    chunk->bumpMeshRevision();
+    bumpMeshRevisionsAround(*chunk, lx, lz);
+    m_lightEngine.onBlockChanged(*this, p, oldType);
+    return true;
+}
 
-    // Edits within one block of a border change the neighbour's face culling
-    // and AO, so its mesh must rebuild too (diagonals included, for AO).
-    const int dxLo = (lx == 0) ? -1 : 0;
-    const int dxHi = (lx == Chunk::SizeX - 1) ? 1 : 0;
-    const int dzLo = (lz == 0) ? -1 : 0;
-    const int dzHi = (lz == Chunk::SizeZ - 1) ? 1 : 0;
-    for (int dx = dxLo; dx <= dxHi; ++dx) {
-        for (int dz = dzLo; dz <= dzHi; ++dz) {
-            if (dx == 0 && dz == 0) {
-                continue;
-            }
-            if (Chunk* neighbor = chunkAt({chunk->coord().x + dx, chunk->coord().z + dz})) {
-                neighbor->bumpMeshRevision();
-            }
-        }
+std::uint8_t World::lightPackedAt(const glm::ivec3& p) const noexcept {
+    if (p.y >= Chunk::SizeY) {
+        return Chunk::packLight(LightEngine::MaxLevel, 0);
     }
+    if (p.y < 0) {
+        return 0;
+    }
+    const Chunk* chunk = chunkAt(chunkCoordOf(p.x, p.z));
+    if (chunk == nullptr) {
+        return 0;
+    }
+    return chunk->lightAt(p.x & 15, p.y, p.z & 15);
+}
+
+bool World::setLightPacked(const glm::ivec3& p, std::uint8_t packed) noexcept {
+    if (p.y < 0 || p.y >= Chunk::SizeY) {
+        return false;
+    }
+    Chunk* chunk = chunkAt(chunkCoordOf(p.x, p.z));
+    if (chunk == nullptr) {
+        return false;
+    }
+    const int lx = p.x & 15;
+    const int lz = p.z & 15;
+    chunk->setLight(lx, p.y, lz, packed);
+    bumpMeshRevisionsAround(*chunk, lx, lz);
     return true;
 }
 
@@ -132,8 +166,10 @@ std::shared_ptr<const MeshInput> World::makeMeshInput(const Chunk& center) const
     auto input = std::make_shared<MeshInput>();
     input->coord = center.coord();
     input->revision = center.meshRevision();
-    input->blocks.resize(static_cast<std::size_t>(MeshInput::PaddedX) * MeshInput::PaddedZ *
-                         Chunk::SizeY);
+    const std::size_t cells =
+        static_cast<std::size_t>(MeshInput::PaddedX) * MeshInput::PaddedZ * Chunk::SizeY;
+    input->blocks.resize(cells);
+    input->light.resize(cells);
 
     for (int px = -1; px <= Chunk::SizeX; ++px) {
         for (int pz = -1; pz <= Chunk::SizeZ; ++pz) {
@@ -145,6 +181,8 @@ std::shared_ptr<const MeshInput> World::makeMeshInput(const Chunk& center) const
                                          Chunk::SizeY);
             std::memcpy(input->blocks.data() + dst, chunk->column(wx & 15, wz & 15),
                         Chunk::SizeY * sizeof(BlockType));
+            std::memcpy(input->light.data() + dst, chunk->lightColumn(wx & 15, wz & 15),
+                        Chunk::SizeY);
         }
     }
     return input;
@@ -173,6 +211,7 @@ void World::integrateGenerated(WorldUpdate& out, ChunkCoord center) {
             continue;
         }
         m_chunks.emplace(result.coord, std::move(result.chunk));
+        m_lightEngine.onChunkLoaded(*this, result.coord);
     }
 }
 
@@ -202,6 +241,7 @@ void World::scheduleGeneration(ChunkCoord center) {
             if (chunk == nullptr) {
                 chunk = m_generator.generate(coord);
             }
+            LightEngine::initializeChunkLight(*chunk);
             m_genResults.push(GenResult{coord, std::move(chunk)});
         });
     }

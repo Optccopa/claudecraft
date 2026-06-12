@@ -33,6 +33,8 @@ constexpr std::array<int, 3> kAxisSize{Chunk::SizeX, Chunk::SizeY, Chunk::SizeZ}
 struct MaskCell {
     BlockType block = BlockType::Air;
     std::uint8_t ao = 0; // four 2-bit corner values: (du,dv) = 00,10,01,11
+    std::array<std::uint8_t, 4> sky{};        // smoothed per-corner light, 0..15
+    std::array<std::uint8_t, 4> blockLight{}; // corner order matches ao bits
 
     [[nodiscard]] friend bool operator==(const MaskCell&, const MaskCell&) = default;
     [[nodiscard]] bool empty() const noexcept { return block == BlockType::Air; }
@@ -77,7 +79,9 @@ void emitQuad(ChunkMeshData& mesh, const FaceBasis& face, const std::array<int, 
     pos[2][static_cast<std::size_t>(face.vAxis)] += static_cast<float>(height);
     pos[3][static_cast<std::size_t>(face.vAxis)] += static_cast<float>(height);
 
-    // Corner AO order in the mask is (du,dv): v0=00, v1=10, v2=11, v3=01.
+    // Corner order in the mask is (du,dv) = 00,10,01,11; vertices run
+    // v0=00, v1=10, v2=11, v3=01 around the quad.
+    constexpr std::array<std::size_t, 4> kVertexCorner{0, 1, 3, 2};
     const std::array<std::uint8_t, 4> ao{
         static_cast<std::uint8_t>(cell.ao & 3u),
         static_cast<std::uint8_t>((cell.ao >> 2) & 3u),
@@ -92,11 +96,14 @@ void emitQuad(ChunkMeshData& mesh, const FaceBasis& face, const std::array<int, 
     const auto baseIndex = static_cast<std::uint32_t>(mesh.vertices.size());
     for (std::size_t i = 0; i < 4; ++i) {
         const auto& p = pos[i];
+        const std::size_t corner = kVertexCorner[i];
         mesh.vertices.push_back(ChunkVertex{
             p[0], p[1], p[2],
             p[static_cast<std::size_t>(face.texRight)],
             p[static_cast<std::size_t>(face.texUp)],
-            tile | (static_cast<std::uint32_t>(ao[i]) << 8) | (normalIndex << 10),
+            tile | (static_cast<std::uint32_t>(ao[i]) << 8) | (normalIndex << 10) |
+                (static_cast<std::uint32_t>(cell.sky[corner]) << 13) |
+                (static_cast<std::uint32_t>(cell.blockLight[corner]) << 17),
         });
     }
 
@@ -143,17 +150,10 @@ void meshDirection(const MeshInput& input, const FaceBasis& face, ChunkMeshData&
                 const BlockType neighbor =
                     input.at(p[0] + normal[0], p[1] + normal[1], p[2] + normal[2]);
 
-                if (block == BlockType::Water) {
-                    // Water only shows a face against air, so submerged terrain
-                    // renders through one translucent surface, not stacked layers.
-                    if (neighbor != BlockType::Air) {
-                        continue;
-                    }
-                    cell.block = block;
-                    cell.ao = 0xFF;
-                    continue;
-                }
-                if (occludes(neighbor)) {
+                // Water only shows a face against air, so submerged terrain
+                // renders through one translucent surface, not stacked layers.
+                const bool isWater = block == BlockType::Water;
+                if (isWater ? neighbor != BlockType::Air : occludes(neighbor)) {
                     continue;
                 }
 
@@ -162,21 +162,52 @@ void meshDirection(const MeshInput& input, const FaceBasis& face, ChunkMeshData&
                 for (int corner = 0; corner < 4; ++corner) {
                     const int du = (corner & 1) ? 1 : -1;
                     const int dv = (corner & 2) ? 1 : -1;
-                    std::array<int, 3> s1 = p;
-                    s1[static_cast<std::size_t>(face.normalAxis)] += face.sign;
-                    std::array<int, 3> s2 = s1;
-                    std::array<int, 3> diag = s1;
+                    std::array<int, 3> n = p;
+                    n[static_cast<std::size_t>(face.normalAxis)] += face.sign;
+                    std::array<int, 3> s1 = n;
+                    std::array<int, 3> s2 = n;
+                    std::array<int, 3> diag = n;
                     s1[static_cast<std::size_t>(face.uAxis)] += du;
                     s2[static_cast<std::size_t>(face.vAxis)] += dv;
                     diag[static_cast<std::size_t>(face.uAxis)] += du;
                     diag[static_cast<std::size_t>(face.vAxis)] += dv;
-                    const std::uint8_t ao =
-                        cornerAo(occludes(input.at(s1[0], s1[1], s1[2])),
-                                 occludes(input.at(s2[0], s2[1], s2[2])),
-                                 occludes(input.at(diag[0], diag[1], diag[2])));
-                    aoBits |= static_cast<std::uint8_t>(ao << (corner * 2));
+
+                    const bool b1 = occludes(input.at(s1[0], s1[1], s1[2]));
+                    const bool b2 = occludes(input.at(s2[0], s2[1], s2[2]));
+                    const bool bd = occludes(input.at(diag[0], diag[1], diag[2]));
+                    aoBits |= static_cast<std::uint8_t>(cornerAo(b1, b2, bd) << (corner * 2));
+
+                    // Smooth lighting: average the face-plane cells around
+                    // this corner, skipping opaque ones (they hold no light
+                    // and would double-darken what AO already covers).
+                    int skySum = static_cast<int>(Chunk::skyLevel(input.lightAt(n[0], n[1], n[2])));
+                    int blockSum =
+                        static_cast<int>(Chunk::blockLevel(input.lightAt(n[0], n[1], n[2])));
+                    int samples = 1;
+                    if (!b1) {
+                        const std::uint8_t l = input.lightAt(s1[0], s1[1], s1[2]);
+                        skySum += Chunk::skyLevel(l);
+                        blockSum += Chunk::blockLevel(l);
+                        ++samples;
+                    }
+                    if (!b2) {
+                        const std::uint8_t l = input.lightAt(s2[0], s2[1], s2[2]);
+                        skySum += Chunk::skyLevel(l);
+                        blockSum += Chunk::blockLevel(l);
+                        ++samples;
+                    }
+                    if (!bd) {
+                        const std::uint8_t l = input.lightAt(diag[0], diag[1], diag[2]);
+                        skySum += Chunk::skyLevel(l);
+                        blockSum += Chunk::blockLevel(l);
+                        ++samples;
+                    }
+                    cell.sky[static_cast<std::size_t>(corner)] =
+                        static_cast<std::uint8_t>(skySum / samples);
+                    cell.blockLight[static_cast<std::size_t>(corner)] =
+                        static_cast<std::uint8_t>(blockSum / samples);
                 }
-                cell.ao = aoBits;
+                cell.ao = isWater ? 0xFF : aoBits;
             }
         }
 

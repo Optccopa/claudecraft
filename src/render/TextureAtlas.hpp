@@ -4,13 +4,13 @@
 
 namespace cc {
 
-// 4x4 tile atlas, 16px tiles, nearest-filtered with no mips (prevents tile
+// 8x8 tile atlas, 16px tiles, nearest-filtered with no mips (prevents tile
 // bleed with the fract()-tiled UVs greedy meshing produces). Loads
 // textures/atlas.png when present, otherwise paints a deterministic
 // procedural fallback so the game runs without binary assets.
 class TextureAtlas {
 public:
-    static constexpr int TilesPerRow = 4;
+    static constexpr int TilesPerRow = 8;
 
     [[nodiscard]] static TextureAtlas create();
 
