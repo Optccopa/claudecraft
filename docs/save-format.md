@@ -1,10 +1,19 @@
 # Save format
 
+## Data directory
+
+All game data lives under `%LOCALAPPDATA%/.claudecraft/` (`core/Paths`,
+resolved from `LOCALAPPDATA`, then `USERPROFILE/AppData/Local`, then the
+working directory): `saves/`, `settings.txt` and `texture_packs/`. On startup
+`paths::migrateLegacy` moves any of those three left in the working directory
+(older builds wrote there) into the data dir, so existing worlds survive the
+move. Only `shaders/` is still read from the working directory.
+
 ## World directories
 
-Each world is a directory `saves/<name>/` containing a `world.meta`, an
-optional `player.dat`, plus one chunk file per modified chunk. `world.meta`
-is line-oriented text, version 3:
+Each world is a directory `saves/<name>/` (under the data dir) containing a
+`world.meta`, an optional `player.dat`, plus one chunk file per modified
+chunk. `world.meta` is line-oriented text, version 3:
 
 ```
 claudecraft-world 3

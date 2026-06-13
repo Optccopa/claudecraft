@@ -13,4 +13,4 @@ the same change as the code (see "Documentation" in [CLAUDE.md](../CLAUDE.md)).
 | [lighting.md](lighting.md) | sky/block light channels, BFS rules, threading split, smooth lighting, day/night | `LightEngine`, light bits in `Chunk`/`ChunkMesher`, `render/Sky` |
 | [gameplay.md](gameplay.md) | game modes, inventory, mining, drops | `Inventory`, `Drops`, `Item.hpp`, edit handling in `Application` |
 | [rendering.md](rendering.md) | passes, shader contracts, atlas, HUD, GL debug | `Renderer`, `Hud`, `TextureAtlas`, `shaders/` |
-| [save-format.md](save-format.md) | world dirs + meta, binary layout, validation, versioning | `WorldSave`, `WorldList`, `BlockType` enum |
+| [save-format.md](save-format.md) | data dir + migration, world dirs + meta, binary layout, validation, versioning | `WorldSave`, `WorldList`, `BlockType` enum, `core/Paths` |

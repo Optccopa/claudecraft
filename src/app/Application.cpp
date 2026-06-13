@@ -1,6 +1,7 @@
 #include "app/Application.hpp"
 
 #include "core/Log.hpp"
+#include "core/Paths.hpp"
 #include "gl/GlDebug.hpp"
 
 #include <GLFW/glfw3.h>
@@ -31,8 +32,15 @@ constexpr std::size_t kMaxNameLength = 24;
 constexpr float kMenuPanSpeed = 3.0f;
 constexpr float kMenuCamHeight = 24.0f;
 
-constexpr const char* kSavesRoot = "saves";
-constexpr const char* kSettingsPath = "settings.txt";
+// Creates the data dir, migrates any legacy working-dir data into it, and
+// ensures the saves subdir exists. Runs first so settings/saves load from it.
+[[nodiscard]] std::filesystem::path prepareDataDir() {
+    const std::filesystem::path root = paths::dataRoot();
+    paths::migrateLegacy(root);
+    std::error_code ec;
+    std::filesystem::create_directories(root / "saves", ec);
+    return root;
+}
 
 constexpr std::array<int, 7> kRenderDistanceOptions{4, 6, 8, 10, 12, 14, 16};
 constexpr std::array<int, 7> kFovOptions{60, 70, 75, 80, 90, 100, 110};
@@ -103,7 +111,8 @@ constexpr bool kDebugBuild = true;
 } // namespace
 
 Application::Application()
-    : m_settings{Settings::load(kSettingsPath)},
+    : m_dataRoot{prepareDataDir()},
+      m_settings{Settings::load(m_dataRoot / "settings.txt")},
       m_window{1600, 900, "claudecraft", kDebugBuild},
       m_input{m_window.handle()},
       m_renderer{},
@@ -131,7 +140,7 @@ void Application::enterMenu() {
 
     const std::uint32_t menuSeed = randomSeed();
     m_menuWorld = std::make_unique<World>(menuSeed, kMenuRenderDistance, m_pool,
-                                          std::filesystem::path(kSavesRoot) / ".menu");
+                                          m_dataRoot / "saves" / ".menu");
     m_menuWorld->setSmoothLighting(m_settings.smoothLighting);
     m_menuEye = glm::vec3{
         0.0f, static_cast<float>(m_menuWorld->generator().surfaceHeight(0, 0)) + kMenuCamHeight,
@@ -184,7 +193,7 @@ void Application::enterSettings(GameState from) {
 }
 
 void Application::leaveSettings() {
-    m_settings.save(kSettingsPath);
+    m_settings.save(m_dataRoot / "settings.txt");
     m_state = m_settingsFrom;
     if (m_state == GameState::Menu) {
         m_menuScreen = MenuScreen::Main;
@@ -192,15 +201,16 @@ void Application::leaveSettings() {
 }
 
 void Application::applyResourcePacks() {
-    std::vector<std::filesystem::path> paths;
-    paths.reserve(m_settings.resourcePacks.size());
+    const std::filesystem::path packsRoot = m_dataRoot / "texture_packs";
+    std::vector<std::filesystem::path> packPaths;
+    packPaths.reserve(m_settings.resourcePacks.size());
     for (const std::string& name : m_settings.resourcePacks) {
-        const std::filesystem::path path = resourcepacks::pathFor(name);
+        const std::filesystem::path path = resourcepacks::pathFor(packsRoot, name);
         if (std::filesystem::exists(path)) {
-            paths.push_back(path);
+            packPaths.push_back(path);
         }
     }
-    m_renderer.setResourcePacks(paths);
+    m_renderer.setResourcePacks(packPaths);
 }
 
 void Application::setPaused(bool paused) {
@@ -444,7 +454,7 @@ void Application::drawMainScreen(const glm::ivec2& fbSize) {
     m_hud.text(width * 0.5f - titleW * 0.5f, height * 0.78f, titleScale, "CLAUDECRAFT");
 
     if (button(fbSize, width * 0.5f, height * 0.45f, "PLAY")) {
-        m_worlds = worldlist::list(kSavesRoot);
+        m_worlds = worldlist::list(m_dataRoot / "saves");
         m_nameField.clear();
         m_menuScreen = MenuScreen::Worlds;
         return;
@@ -497,7 +507,8 @@ void Application::drawWorldsScreen(const glm::ivec2& fbSize) {
         button(fbSize, centerX, fieldY - 2.0f * (kButtonHeight + 14.0f), "CREATE") ||
         m_input.wasPressed(GLFW_KEY_ENTER);
     if (createClicked) {
-        startGame(worldlist::create(kSavesRoot, m_nameField, randomSeed(), m_createMode));
+        startGame(
+            worldlist::create(m_dataRoot / "saves", m_nameField, randomSeed(), m_createMode));
         return;
     }
 
@@ -1038,7 +1049,7 @@ void Application::drawPackSettings(const glm::ivec2& fbSize, float topY) {
     m_hud.text(nameX, rowY + kButtonHeight, kNameScale, "AVAILABLE");
     rowY -= kButtonHeight * 0.6f;
 
-    const std::vector<std::string> avail = resourcepacks::available();
+    const std::vector<std::string> avail = resourcepacks::available(m_dataRoot / "texture_packs");
     bool anyDisabled = false;
     for (const std::string& name : avail) {
         if (std::find(m_settings.resourcePacks.begin(), m_settings.resourcePacks.end(), name) !=
@@ -1069,7 +1080,7 @@ void Application::drawPackSettings(const glm::ivec2& fbSize, float topY) {
     } else {
         return;
     }
-    m_settings.save(kSettingsPath);
+    m_settings.save(m_dataRoot / "settings.txt");
     applyResourcePacks();
 }
 

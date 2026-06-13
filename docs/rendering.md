@@ -60,7 +60,9 @@ the texture. Unassigned tiles render magenta on purpose.
 `TextureAtlas::create` source order:
 
 1. **Minecraft resource pack stack** — an ordered list of `.zip`s or
-   extracted directories under `texture_packs/`, highest priority first.
+   extracted directories under the data dir's `texture_packs/`
+   (`%LOCALAPPDATA%/.claudecraft/`, see [save-format.md](save-format.md)),
+   highest priority first.
    `core/ZipArchive` reads each zip (stored + deflate, the latter via stb's raw
    inflate, so no new dependency). Each atlas tile takes
    `assets/minecraft/textures/{block,blocks}/<stem>.png` from the **topmost

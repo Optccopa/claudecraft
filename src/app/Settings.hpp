@@ -40,8 +40,8 @@ struct Settings {
     float playerSpeed = 1.0f;   // cheat: move-speed multiplier, 0.5..8.0
     float reach = 5.5f;         // cheat: block reach distance, 3..12
     Keybinds keys = defaultKeybinds();
-    // Enabled resource packs, highest texture priority first (filenames under
-    // resourcepacks::kRoot). Empty = built-in/procedural atlas.
+    // Enabled resource packs, highest texture priority first (filenames in the
+    // data dir's texture_packs/). Empty = built-in/procedural atlas.
     std::vector<std::string> resourcePacks;
 
     [[nodiscard]] static Settings load(const std::filesystem::path& path);

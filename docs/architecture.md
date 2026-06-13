@@ -47,22 +47,25 @@ hotkeys in that same block.
 `Settings` is reachable from both the main menu and pause; `m_settingsFrom`
 remembers the return state and picks the backdrop (panning menu world vs the
 frozen game world). Values are defined in `app/Settings` (persisted to
-`settings.txt`, clamped on load, saved on leaving the screen) and applied
-live when clicked: render distance restreams the loaded world, FOV updates
-the camera, vsync/fullscreen go straight to GLFW, smooth lighting remeshes
-every loaded chunk (`World::setSmoothLighting`), sensitivity/invert-Y feed
-the look-input path. A new setting needs: a `Settings` field + load/save
-line, a `settingRow` in `updateSettings`, and its live-apply call.
+`settings.txt` in the data dir, clamped on load, saved on leaving the screen)
+and applied live when clicked, across four tabs: VIDEO (render distance
+restreams the world, FOV updates the camera, vsync/fullscreen to GLFW, smooth
+lighting remeshes via `World::setSmoothLighting`), CONTROLS (sensitivity/
+invert-Y + rebinds), PACKS (resource-pack stack, see [rendering.md](rendering.md))
+and CHEATS (player speed → `Player::setSpeedMultiplier`, block reach → the
+raycast). A new setting needs: a `Settings` field + load/save line, a
+`settingRow` in `updateSettings`, and its live-apply call.
 
-Every gameplay key is rebindable: `Keybinds` (in `app/Settings`) maps the
-eight actions to GLFW key codes, persisted as `key.<action>` lines. The
-CONTROLS tab shows one row per action; clicking enters capture mode and the
-next pressed key binds (ESC cancels the capture before it closes the
-screen). Gameplay input reads only `m_settings.keys` — never raw key
-constants — so new actions must go through the same table.
+Every gameplay key is rebindable: `Keybinds` (in `app/Settings`) maps each
+action — movement, jump/descend, fly, inventory, drop, and the nine hotbar
+slots — to GLFW key codes, persisted as `key.<action>` / `key.hotbarN` lines.
+The CONTROLS tab shows one row per action in two columns (movement+mouse
+left, hotbar right); clicking enters capture mode and the next pressed key
+binds (ESC cancels). Gameplay input reads only `m_settings.keys` — never raw
+key constants — so new actions go through the same table.
 
-World identity comes from `world/WorldList`: the Worlds screen lists
-`saves/` (newest first) and creates named worlds with a random seed
+World identity comes from `world/WorldList`: the Worlds screen lists the data
+dir's `saves/` (newest first) and creates named worlds with a random seed
 (see [save-format.md](save-format.md)). `startGame` and `enterMenu` are the
 only world-lifecycle functions: each resets the outgoing `World` (its
 destructor blocks until worker jobs finish, saving modified chunks) and

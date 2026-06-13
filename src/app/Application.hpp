@@ -18,6 +18,7 @@
 #include "world/WorldList.hpp"
 
 #include <array>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -83,7 +84,8 @@ private:
 
     static constexpr int kMenuRenderDistance = 8;
 
-    Settings m_settings; // loaded before the members below consume it
+    std::filesystem::path m_dataRoot; // %LOCALAPPDATA%/.claudecraft; first so it's ready early
+    Settings m_settings;              // loaded before the members below consume it
     Window m_window;
     Input m_input;
     Renderer m_renderer;

@@ -33,13 +33,11 @@ private:
 
 namespace resourcepacks {
 
-// Directory holding user-supplied packs (.zip or extracted folders).
-inline constexpr std::string_view kRoot = "texture_packs";
-
-// Names (zip filename or folder name) of every readable pack under kRoot,
+// Names (zip filename or folder name) of every readable pack under `root`,
 // sorted. Names resolve back to a path with pathFor.
-[[nodiscard]] std::vector<std::string> available();
-[[nodiscard]] std::filesystem::path pathFor(std::string_view name);
+[[nodiscard]] std::vector<std::string> available(const std::filesystem::path& root);
+[[nodiscard]] std::filesystem::path pathFor(const std::filesystem::path& root,
+                                            std::string_view name);
 
 } // namespace resourcepacks
 } // namespace cc

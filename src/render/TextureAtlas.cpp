@@ -345,10 +345,10 @@ void compositeTile(std::vector<Rgba>& atlas, int tile,
 
 namespace resourcepacks {
 
-std::vector<std::string> available() {
+std::vector<std::string> available(const std::filesystem::path& root) {
     std::vector<std::string> names;
     std::error_code ec;
-    for (const auto& entry : std::filesystem::directory_iterator(kRoot, ec)) {
+    for (const auto& entry : std::filesystem::directory_iterator(root, ec)) {
         if (entry.is_regular_file() && entry.path().extension() == ".zip") {
             names.push_back(entry.path().filename().string());
         } else if (entry.is_directory() &&
@@ -361,8 +361,8 @@ std::vector<std::string> available() {
     return names;
 }
 
-std::filesystem::path pathFor(std::string_view name) {
-    return std::filesystem::path(kRoot) / name;
+std::filesystem::path pathFor(const std::filesystem::path& root, std::string_view name) {
+    return root / name;
 }
 
 } // namespace resourcepacks

@@ -78,7 +78,7 @@ Greedy meshing per face direction: each slice builds a mask of visible faces (fa
 
 ### World persistence
 
-Each world lives in `saves/<name>/` with a `world.meta` (format version + seed). Only modified chunks are written: `c_<x>_<z>.bin`, an 8-byte magic+version header followed by RLE runs. Corrupt or version-mismatched files are ignored and the chunk regenerates. Saving happens on eviction, on quit-to-menu, and on exit.
+All writable data lives under `%LOCALAPPDATA%/.claudecraft/` (`saves/`, `settings.txt`, `texture_packs/`); older installs' working-dir data is migrated there on first launch. Each world lives in `saves/<name>/` with a `world.meta` (format version + seed). Only modified chunks are written: `c_<x>_<z>.bin`, an 8-byte magic+version header followed by RLE runs. Corrupt or version-mismatched files are ignored and the chunk regenerates. Saving happens on eviction, on quit-to-menu, and on exit.
 
 ### Textures
 

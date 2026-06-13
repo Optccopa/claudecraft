@@ -51,7 +51,10 @@ Adding a header-only dep: drop it in `third_party/<name>/`, add an
 
 The exe loads `shaders/*.vert|.frag` relative to the working directory —
 run from the project root. `launch.json` sets `cwd` accordingly; if a shader
-is missing the program exits with the path in the error message.
+is missing the program exits with the path in the error message. All *writable*
+data (saves, settings, resource packs) instead lives under
+`%LOCALAPPDATA%/.claudecraft/` (`core/Paths`), so the working dir only needs
+the read-only `shaders/`.
 
 ## IntelliSense
 
