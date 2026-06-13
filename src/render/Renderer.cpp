@@ -263,6 +263,13 @@ void Renderer::render(const FrameParams& params) {
     }
     m_drawnLastFrame = visible.size();
 
+    // One sort, near-to-far. Opaque draws front-to-back so early-Z rejects
+    // occluded fragments; water reuses the same order in reverse for the
+    // back-to-front translucent pass.
+    std::sort(visible.begin(), visible.end(), [](const VisibleChunk& a, const VisibleChunk& b) {
+        return a.distanceSq < b.distanceSq;
+    });
+
     m_chunkShader.setFloat("uAlpha", 1.0f);
     for (const VisibleChunk& chunk : visible) {
         if (chunk.meshes->opaque.indexCount == 0) {
@@ -275,14 +282,12 @@ void Renderer::render(const FrameParams& params) {
 
     // Translucent water: back-to-front with depth writes off so distant
     // surfaces show through near ones instead of being depth-rejected.
-    std::sort(visible.begin(), visible.end(), [](const VisibleChunk& a, const VisibleChunk& b) {
-        return a.distanceSq > b.distanceSq;
-    });
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDepthMask(GL_FALSE);
     m_chunkShader.setFloat("uAlpha", 0.65f);
-    for (const VisibleChunk& chunk : visible) {
+    for (auto it = visible.rbegin(); it != visible.rend(); ++it) {
+        const VisibleChunk& chunk = *it;
         if (chunk.meshes->water.indexCount == 0) {
             continue;
         }

@@ -8,7 +8,7 @@ through `Renderer` and `Hud` on the main thread.
 
 ```
 clear (sky color == fog color, so fogged geometry vanishes seamlessly)
-opaque chunk pass     cull back, depth test+write
+opaque chunk pass     cull back, depth test+write, near-to-far (early-Z)
 water chunk pass      blend, depth write OFF, far-to-near chunk order
 block highlight       inflated line cube (no z-fight against faces)
 HUD                   one batched draw; depth + cull OFF, blend ON
@@ -16,7 +16,10 @@ HUD                   one batched draw; depth + cull OFF, blend ON
 
 Per-chunk frustum culling: Gribb/Hartmann plane extraction from the
 view-projection matrix, p-vertex AABB test against the full-height chunk box
-(16×256×16). Title bar's "N drawn" is the post-cull count.
+(16×256×16). Title bar's "N drawn" is the post-cull count. Visible chunks are
+sorted near-to-far once; the opaque pass walks that order forward (front-to-
+back, so depth test early-rejects occluded fragments) and the water pass walks
+it in reverse (back-to-front for correct blending).
 
 G toggles a chunk-border wireframe (`Renderer::drawChunkBorders`): the cell
 grid on the four walls of the player's current chunk column, streamed each
