@@ -179,6 +179,7 @@ void Application::enterSettings(GameState from) {
     m_settingsFrom = from;
     m_settingsCategory = SettingsCategory::Video;
     m_rebinding = -1;
+    m_rebindHotbar = -1;
     m_state = GameState::Settings;
 }
 
@@ -312,9 +313,9 @@ void Application::handleGameplayInput(float frameDt, const RaycastHit& target) {
     move.descend = m_input.isDown(keys.descend);
     m_player.setInput(move);
 
-    for (int key = GLFW_KEY_1; key <= GLFW_KEY_9; ++key) {
-        if (m_input.wasPressed(key)) {
-            m_selectedSlot = key - GLFW_KEY_1;
+    for (std::size_t i = 0; i < keys.hotbar.size(); ++i) {
+        if (m_input.wasPressed(keys.hotbar[i])) {
+            m_selectedSlot = static_cast<int>(i);
         }
     }
     const float scroll = m_input.scrollDelta();
@@ -824,6 +825,16 @@ bool Application::settingRow(const glm::ivec2& fbSize, float bottomY, std::strin
     return button(fbSize, centerX + 170.0f, bottomY, value, 300.0f);
 }
 
+bool Application::keybindRow(const glm::ivec2& fbSize, float columnX, float bottomY,
+                             std::string_view label, std::string_view value) {
+    constexpr float kLabelScale = 2.2f;
+    constexpr float kButtonW = 190.0f;
+    const float labelW = Hud::textWidth(label, kLabelScale);
+    m_hud.text(columnX - kButtonW * 0.5f - 16.0f - labelW,
+               bottomY + kButtonHeight * 0.5f + 4.0f * kLabelScale, kLabelScale, label);
+    return button(fbSize, columnX, bottomY, value, kButtonW);
+}
+
 void Application::updateSettings(float frameDt, const glm::ivec2& fbSize) {
     if (m_settingsFrom == GameState::Paused) {
         renderWorld(*m_world, fbSize, m_player.eyePosition(1.0f), m_player.yaw(),
@@ -864,6 +875,7 @@ void Application::updateSettings(float frameDt, const glm::ivec2& fbSize) {
         if (button(fbSize, tabX, tabY, tabs[i].first, kTabWidth)) {
             m_settingsCategory = tabs[i].second;
             m_rebinding = -1;
+            m_rebindHotbar = -1;
         }
     }
 
@@ -925,36 +937,57 @@ void Application::updateSettings(float frameDt, const glm::ivec2& fbSize) {
         }
     } else {
         // Finish a pending rebind with the next pressed key (ESC cancels via
-        // the top-level handler).
-        if (m_rebinding >= 0) {
-            const int pressed = m_input.lastKeyPressed();
-            if (pressed != -1 && pressed != GLFW_KEY_ESCAPE) {
-                m_settings.keys.*kBindRows[static_cast<std::size_t>(m_rebinding)].member =
-                    pressed;
+        // the top-level handler). Only one capture is active at a time.
+        const int pressed = m_input.lastKeyPressed();
+        if (pressed != -1 && pressed != GLFW_KEY_ESCAPE) {
+            if (m_rebinding >= 0) {
+                m_settings.keys.*kBindRows[static_cast<std::size_t>(m_rebinding)].member = pressed;
                 m_rebinding = -1;
+            } else if (m_rebindHotbar >= 0) {
+                m_settings.keys.hotbar[static_cast<std::size_t>(m_rebindHotbar)] = pressed;
+                m_rebindHotbar = -1;
             }
         }
 
         constexpr float kBindStep = 52.0f;
-        if (settingRow(fbSize, rowY, "SENSITIVITY",
+        const float leftX = centerX - 235.0f;
+        const float rightX = centerX + 235.0f;
+
+        // Left column: mouse options then the action binds.
+        float leftY = rowY;
+        if (keybindRow(fbSize, leftX, leftY, "SENSITIVITY",
                        std::format("{:.0f}%", m_settings.sensitivity * 100.0f))) {
             m_settings.sensitivity += 0.2f;
             if (m_settings.sensitivity > 3.01f) {
                 m_settings.sensitivity = 0.2f;
             }
         }
-        rowY -= kBindStep;
-        if (settingRow(fbSize, rowY, "INVERT Y", m_settings.invertY ? "ON" : "OFF")) {
+        leftY -= kBindStep;
+        if (keybindRow(fbSize, leftX, leftY, "INVERT Y", m_settings.invertY ? "ON" : "OFF")) {
             m_settings.invertY = !m_settings.invertY;
         }
         for (std::size_t i = 0; i < kBindRows.size(); ++i) {
-            rowY -= kBindStep;
+            leftY -= kBindStep;
             const bool capturing = m_rebinding == static_cast<int>(i);
-            if (settingRow(fbSize, rowY, kBindRows[i].label,
+            if (keybindRow(fbSize, leftX, leftY, kBindRows[i].label,
                            capturing ? "PRESS A KEY"
                                      : keyName(m_settings.keys.*kBindRows[i].member))) {
                 m_rebinding = capturing ? -1 : static_cast<int>(i);
+                m_rebindHotbar = -1;
             }
+        }
+
+        // Right column: the nine hotbar-slot binds.
+        float rightY = rowY;
+        for (std::size_t i = 0; i < m_settings.keys.hotbar.size(); ++i) {
+            const bool capturing = m_rebindHotbar == static_cast<int>(i);
+            if (keybindRow(fbSize, rightX, rightY, std::format("HOTBAR {}", i + 1),
+                           capturing ? "PRESS A KEY"
+                                     : keyName(m_settings.keys.hotbar[i]))) {
+                m_rebindHotbar = capturing ? -1 : static_cast<int>(i);
+                m_rebinding = -1;
+            }
+            rightY -= kBindStep;
         }
     }
 
@@ -1098,8 +1131,9 @@ void Application::run() {
                 setPaused(false);
                 break;
             case GameState::Settings:
-                if (m_rebinding >= 0) {
+                if (m_rebinding >= 0 || m_rebindHotbar >= 0) {
                     m_rebinding = -1;
+                    m_rebindHotbar = -1;
                 } else {
                     leaveSettings();
                 }

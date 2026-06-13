@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -19,6 +20,7 @@ struct Keybinds {
     int fly;
     int inventory;
     int drop;
+    std::array<int, 9> hotbar; // select hotbar slots 1..9
 };
 
 [[nodiscard]] Keybinds defaultKeybinds() noexcept;

@@ -58,6 +58,10 @@ private:
     // One settings line: right-aligned label, clickable value button.
     [[nodiscard]] bool settingRow(const glm::ivec2& fbSize, float bottomY, std::string_view label,
                                   std::string_view value);
+    // Label + value button centred on an arbitrary column x (for the two-column
+    // CONTROLS layout). settingRow is this centred on the screen.
+    [[nodiscard]] bool keybindRow(const glm::ivec2& fbSize, float columnX, float bottomY,
+                                  std::string_view label, std::string_view value);
 
     void handleGameplayInput(float frameDt, const RaycastHit& target);
     void handleBlockEdits(float frameDt, const RaycastHit& target);
@@ -94,7 +98,8 @@ private:
     MenuScreen m_menuScreen = MenuScreen::Main;
     GameState m_settingsFrom = GameState::Menu;
     SettingsCategory m_settingsCategory = SettingsCategory::Video;
-    int m_rebinding = -1; // index into the keybind rows while capturing
+    int m_rebinding = -1;      // index into the keybind rows while capturing
+    int m_rebindHotbar = -1;   // hotbar slot 0..8 while capturing its key
     double m_worldTime = 0.05; // day fraction; advances only while Playing
     glm::vec3 m_menuEye{0.0f};
     double m_menuTime = 0.0;

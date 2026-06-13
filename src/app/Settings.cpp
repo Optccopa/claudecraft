@@ -37,7 +37,9 @@ constexpr std::array<KeyEntry, 9> kKeyEntries{{
 Keybinds defaultKeybinds() noexcept {
     return Keybinds{GLFW_KEY_W,     GLFW_KEY_S,          GLFW_KEY_A, GLFW_KEY_D,
                     GLFW_KEY_SPACE, GLFW_KEY_LEFT_SHIFT, GLFW_KEY_F, GLFW_KEY_E,
-                    GLFW_KEY_Q};
+                    GLFW_KEY_Q,
+                    {GLFW_KEY_1, GLFW_KEY_2, GLFW_KEY_3, GLFW_KEY_4, GLFW_KEY_5, GLFW_KEY_6,
+                     GLFW_KEY_7, GLFW_KEY_8, GLFW_KEY_9}};
 }
 
 std::string_view keyName(int key) noexcept {
@@ -108,6 +110,11 @@ Settings Settings::load(const std::filesystem::path& path) {
             if (!name.empty()) {
                 settings.resourcePacks.push_back(std::move(name));
             }
+        } else if (key.starts_with("key.hotbar") && key.size() == 11) {
+            const int slot = key[10] - '1';
+            if (slot >= 0 && slot < static_cast<int>(settings.keys.hotbar.size())) {
+                parts >> settings.keys.hotbar[static_cast<std::size_t>(slot)];
+            }
         } else {
             for (const KeyEntry& entry : kKeyEntries) {
                 if (key == entry.name) {
@@ -126,6 +133,9 @@ Settings Settings::load(const std::filesystem::path& path) {
         settings.keys.*entry.member =
             std::clamp(settings.keys.*entry.member, 0, GLFW_KEY_LAST);
     }
+    for (int& slot : settings.keys.hotbar) {
+        slot = std::clamp(slot, 0, GLFW_KEY_LAST);
+    }
     return settings;
 }
 
@@ -138,6 +148,9 @@ void Settings::save(const std::filesystem::path& path) const {
                         invertY, playerSpeed, reach);
     for (const KeyEntry& entry : kKeyEntries) {
         file << entry.name << ' ' << keys.*entry.member << '\n';
+    }
+    for (std::size_t i = 0; i < keys.hotbar.size(); ++i) {
+        file << "key.hotbar" << (i + 1) << ' ' << keys.hotbar[i] << '\n';
     }
     for (const std::string& pack : resourcePacks) {
         file << "pack " << pack << '\n';
