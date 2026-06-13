@@ -4,7 +4,7 @@
 #include <exception>
 
 int main() {
-    try {
+    try { 
         cc::Application app;
         app.run();
     } catch (const std::exception& e) {

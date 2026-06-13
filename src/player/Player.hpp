@@ -34,15 +34,25 @@ public:
     [[nodiscard]] float pitch() const noexcept { return m_pitch; }
     [[nodiscard]] bool flying() const noexcept { return m_flying; }
     [[nodiscard]] bool onGround() const noexcept { return m_onGround; }
+    [[nodiscard]] bool crouching() const noexcept { return m_crouching; }
 
     // Placement guard: would a block in this cell overlap the player AABB?
     [[nodiscard]] bool intersectsBlock(const glm::ivec3& cell) const noexcept;
 
 private:
     void moveAxis(const World& world, int axis, float displacement);
+    void moveHorizontalAxis(const World& world, int axis, float displacement);
+    void updateCrouch(const World& world);
+    [[nodiscard]] glm::vec3 halfExtents() const noexcept { return {kHalfXZ, m_halfHeight, kHalfXZ}; }
+    // Is there solid ground directly under the AABB at its current position?
+    [[nodiscard]] bool groundBelow(const World& world) const noexcept;
+    // Does the current AABB overlap any solid voxel (stand-up clearance test)?
+    [[nodiscard]] bool headroomBlocked(const World& world) const noexcept;
 
-    static constexpr glm::vec3 kHalfExtents{0.3f, 0.9f, 0.3f};
-    static constexpr float kEyeAboveCenter = 0.72f; // eye at 1.62 m over feet
+    static constexpr float kHalfXZ = 0.3f;
+    static constexpr float kStandHalfHeight = 0.9f;
+    static constexpr float kCrouchHalfHeight = 0.6f;
+    static constexpr float kEyeBelowTop = 0.18f; // eye sits this far under the box top
 
     glm::vec3 m_position;     // AABB center
     glm::vec3 m_prevPosition;
@@ -51,6 +61,8 @@ private:
     float m_pitch = 0.0f;
     bool m_flying = false;
     bool m_onGround = false;
+    bool m_crouching = false;
+    float m_halfHeight = kStandHalfHeight;
     float m_speedMultiplier = 1.0f; // cheat: scales walk + fly speed
     PlayerInput m_input;
 };

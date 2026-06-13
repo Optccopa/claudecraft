@@ -13,6 +13,7 @@ namespace cc {
 namespace {
 
 constexpr float kWalkSpeed = 4.5f;
+constexpr float kCrouchFactor = 0.3f; // walk-speed scale while sneaking
 constexpr float kFlySpeed = 12.0f;
 constexpr float kGravity = 26.0f;
 constexpr float kJumpVelocity = 8.2f;
@@ -35,15 +36,56 @@ void Player::addLook(float yawDelta, float pitchDelta) noexcept {
 
 glm::vec3 Player::eyePosition(float alpha) const noexcept {
     const glm::vec3 pos = m_prevPosition + (m_position - m_prevPosition) * alpha;
-    return pos + glm::vec3{0.0f, kEyeAboveCenter, 0.0f};
+    return pos + glm::vec3{0.0f, m_halfHeight - kEyeBelowTop, 0.0f};
 }
 
 bool Player::intersectsBlock(const glm::ivec3& cell) const noexcept {
-    const glm::vec3 mn = m_position - kHalfExtents;
-    const glm::vec3 mx = m_position + kHalfExtents;
+    const glm::vec3 half = halfExtents();
+    const glm::vec3 mn = m_position - half;
+    const glm::vec3 mx = m_position + half;
     return static_cast<float>(cell.x + 1) > mn.x && static_cast<float>(cell.x) < mx.x &&
            static_cast<float>(cell.y + 1) > mn.y && static_cast<float>(cell.y) < mx.y &&
            static_cast<float>(cell.z + 1) > mn.z && static_cast<float>(cell.z) < mx.z;
+}
+
+// Scan the thin slab just under the feet across the full XZ footprint.
+bool Player::groundBelow(const World& world) const noexcept {
+    const glm::vec3 half = halfExtents();
+    const float feet = m_position.y - half.y;
+    const int y = static_cast<int>(std::floor(feet - 2.0f * kSkin));
+    const int x0 = static_cast<int>(std::floor(m_position.x - half.x + kSkin));
+    const int x1 = static_cast<int>(std::floor(m_position.x + half.x - kSkin));
+    const int z0 = static_cast<int>(std::floor(m_position.z - half.z + kSkin));
+    const int z1 = static_cast<int>(std::floor(m_position.z + half.z - kSkin));
+    for (int x = x0; x <= x1; ++x) {
+        for (int z = z0; z <= z1; ++z) {
+            if (solidAt(world, x, y, z)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool Player::headroomBlocked(const World& world) const noexcept {
+    const glm::vec3 mn = m_position - halfExtents();
+    const glm::vec3 mx = m_position + halfExtents();
+    const glm::ivec3 lo{static_cast<int>(std::floor(mn.x + kSkin)),
+                        static_cast<int>(std::floor(mn.y + kSkin)),
+                        static_cast<int>(std::floor(mn.z + kSkin))};
+    const glm::ivec3 hi{static_cast<int>(std::floor(mx.x - kSkin)),
+                        static_cast<int>(std::floor(mx.y - kSkin)),
+                        static_cast<int>(std::floor(mx.z - kSkin))};
+    for (int x = lo.x; x <= hi.x; ++x) {
+        for (int y = lo.y; y <= hi.y; ++y) {
+            for (int z = lo.z; z <= hi.z; ++z) {
+                if (solidAt(world, x, y, z)) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
 }
 
 // Swept AABB against the voxel grid, one axis at a time: scan every solid
@@ -54,8 +96,9 @@ void Player::moveAxis(const World& world, int axis, float displacement) {
     if (displacement == 0.0f) {
         return;
     }
-    glm::vec3 mn = m_position - kHalfExtents;
-    glm::vec3 mx = m_position + kHalfExtents;
+    const glm::vec3 half = halfExtents();
+    glm::vec3 mn = m_position - half;
+    glm::vec3 mx = m_position + half;
     if (displacement > 0.0f) {
         mx[axis] += displacement;
     } else {
@@ -69,8 +112,8 @@ void Player::moveAxis(const World& world, int axis, float displacement) {
                         static_cast<int>(std::floor(mx.z - kSkin))};
 
     float allowed = displacement;
-    const float face = displacement > 0.0f ? m_position[axis] + kHalfExtents[axis]
-                                           : m_position[axis] - kHalfExtents[axis];
+    const float face = displacement > 0.0f ? m_position[axis] + half[axis]
+                                           : m_position[axis] - half[axis];
     bool collided = false;
 
     for (int x = lo.x; x <= hi.x; ++x) {
@@ -116,6 +159,11 @@ void Player::fixedUpdate(float dt, const World& world) {
         return;
     }
 
+    // Crouch shares the descend bind; only meaningful on foot. The box
+    // shrinks from the top, so keep the feet planted by lowering the centre
+    // (and raise it back on stand-up, but only when there's headroom).
+    updateCrouch(world);
+
     const glm::vec3 forward = Camera::direction(m_yaw, 0.0f);
     const glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3{0.0f, 1.0f, 0.0f}));
     glm::vec3 wish = forward * m_input.move.y + right * m_input.move.x;
@@ -130,7 +178,8 @@ void Player::fixedUpdate(float dt, const World& world) {
         m_velocity = target;
         m_onGround = false;
     } else {
-        const float walkSpeed = kWalkSpeed * m_speedMultiplier;
+        const float walkSpeed =
+            kWalkSpeed * m_speedMultiplier * (m_crouching ? kCrouchFactor : 1.0f);
         m_velocity.x = wish.x * walkSpeed;
         m_velocity.z = wish.z * walkSpeed;
         m_velocity.y = std::max(m_velocity.y - kGravity * dt, -kTerminalVelocity);
@@ -142,8 +191,45 @@ void Player::fixedUpdate(float dt, const World& world) {
 
     // Y first so landing settles before horizontal sweeps hug walls.
     moveAxis(world, 1, m_velocity.y * dt);
-    moveAxis(world, 0, m_velocity.x * dt);
-    moveAxis(world, 2, m_velocity.z * dt);
+    moveHorizontalAxis(world, 0, m_velocity.x * dt);
+    moveHorizontalAxis(world, 2, m_velocity.z * dt);
+}
+
+void Player::updateCrouch(const World& world) {
+    const bool want = !m_flying && m_input.descend;
+    if (want == m_crouching) {
+        return;
+    }
+    if (want) {
+        m_position.y -= kStandHalfHeight - kCrouchHalfHeight;
+        m_halfHeight = kCrouchHalfHeight;
+        m_crouching = true;
+    } else {
+        // Only stand if the taller box wouldn't clip into a block above.
+        m_halfHeight = kStandHalfHeight;
+        m_position.y += kStandHalfHeight - kCrouchHalfHeight;
+        if (headroomBlocked(world)) {
+            m_position.y -= kStandHalfHeight - kCrouchHalfHeight;
+            m_halfHeight = kCrouchHalfHeight;
+        } else {
+            m_crouching = false;
+        }
+    }
+}
+
+// Horizontal move with sneak edge-stop: a crouching, grounded player won't
+// step past a ledge — revert the axis if the move would leave no ground.
+void Player::moveHorizontalAxis(const World& world, int axis, float displacement) {
+    if (m_crouching && m_onGround && displacement != 0.0f) {
+        const float before = m_position[axis];
+        moveAxis(world, axis, displacement);
+        if (!groundBelow(world)) {
+            m_position[axis] = before;
+            m_velocity[axis] = 0.0f;
+        }
+        return;
+    }
+    moveAxis(world, axis, displacement);
 }
 
 } // namespace cc

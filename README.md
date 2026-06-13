@@ -23,7 +23,7 @@ If your MSVC version differs, update `compilerPath` in `.vscode/c_cpp_properties
 |---|---|
 | WASD + mouse | Move / look |
 | Space | Jump (walk) / ascend (fly) |
-| Left Shift | Descend (fly) |
+| Left Shift | Descend (fly) / crouch (on foot: slower, lower hitbox, won't walk off ledges) |
 | F | Toggle fly (creative only) |
 | Left / right click | Break / place block (survival: hold to mine, blocks drop) |
 | 1–9, scroll wheel | Select hotbar slot |
