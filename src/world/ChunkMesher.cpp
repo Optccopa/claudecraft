@@ -97,14 +97,14 @@ void emitQuad(ChunkMeshData& mesh, const FaceBasis& face, const std::array<int, 
     for (std::size_t i = 0; i < 4; ++i) {
         const auto& p = pos[i];
         const std::size_t corner = kVertexCorner[i];
-        mesh.vertices.push_back(ChunkVertex{
-            p[0], p[1], p[2],
-            p[static_cast<std::size_t>(face.texRight)],
-            p[static_cast<std::size_t>(face.texUp)],
+        const std::uint32_t data =
             tile | (static_cast<std::uint32_t>(ao[i]) << 8) | (normalIndex << 10) |
-                (static_cast<std::uint32_t>(cell.sky[corner]) << 13) |
-                (static_cast<std::uint32_t>(cell.blockLight[corner]) << 17),
-        });
+            (static_cast<std::uint32_t>(cell.sky[corner]) << 13) |
+            (static_cast<std::uint32_t>(cell.blockLight[corner]) << 17);
+        mesh.vertices.push_back(packChunkVertex(
+            static_cast<int>(p[0]), static_cast<int>(p[1]), static_cast<int>(p[2]),
+            static_cast<int>(p[static_cast<std::size_t>(face.texRight)]),
+            static_cast<int>(p[static_cast<std::size_t>(face.texUp)]), data));
     }
 
     // Split the quad along the diagonal joining the brighter corner pair so

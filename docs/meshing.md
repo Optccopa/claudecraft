@@ -50,13 +50,21 @@ AO sample up to 1 block outside the chunk in x/z (y out of range reads Air).
 y). Negative x/z faces are horizontally mirrored as a consequence; invisible
 with noisy tiles — revisit only if a directional texture is ever added.
 
-## Vertex format (24 bytes, `ChunkVertex`)
+## Vertex format (12 bytes, `ChunkVertex`)
+
+Greedy quads land on block edges, so every coordinate is a small exact
+integer — positions and UVs pack losslessly into two `uint32`s (`packChunkVertex`):
 
 | Offset | Field | Notes |
 |---|---|---|
-| 0 | `float x,y,z` | chunk-local; shader adds `uChunkOrigin` |
-| 12 | `float u,v` | **block-space**, runs 0..width / 0..height across a merged quad |
-| 20 | `uint32 data` | bits 0–7 atlas tile, 8–9 this corner's AO, 10–12 normal index, 13–16 sky light, 17–20 block light |
+| 0 | `uint32 pos` | bits 0–4 x, 5–9 z (both 0..16), 10–18 y (0..256); chunk-local, shader adds `uChunkOrigin` |
+| 4 | `uint32 uv` | bits 0–15 u, 16–31 v — **block-space**, runs 0..width / 0..height across a merged quad |
+| 8 | `uint32 data` | bits 0–7 atlas tile, 8–9 this corner's AO, 10–12 normal index, 13–16 sky light, 17–20 block light |
+
+All three are consumed via `glVertexAttribIPointer` (integer attributes); the
+vertex shader unpacks position/UV with shifts. The dropped-item cubes
+(`makeDropMeshData`) reuse this format with a 0..1 unit cube and the shader's
+`uCenter`=0.5 to recenter it before scaling.
 
 Per-corner light is smoothed (4-cell average) and part of the mask equality —
 see [lighting.md](lighting.md). Quads only merge where AO **and** both light
@@ -64,9 +72,6 @@ channels match at every corner. With the smooth-lighting setting off,
 corners take the face cell's light with full AO instead — flat shading that
 merges far better (the setting toggles `MeshInput::smoothLighting` and
 remeshes the world).
-
-`data` is consumed via `glVertexAttribIPointer` (integer attribute — a plain
-`glVertexAttribPointer` would convert to float and corrupt the bitfield).
 
 ## The fract() atlas trick
 

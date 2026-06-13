@@ -11,12 +11,27 @@
 namespace cc {
 
 struct ChunkVertex {
-    float x, y, z; // chunk-local position
-    float u, v;    // block-space texcoords; fract() in the shader tiles the atlas
+    // chunk-local position, x | z << 5 | y << 10 (x,z in [0,16], y in [0,256])
+    std::uint32_t pos;
+    // block-space texcoords u | v << 16; fract() in the shader tiles the atlas
+    std::uint32_t uv;
     // tile | aoCorner << 8 | normalIndex << 10 | skyLight << 13 | blockLight << 17
     std::uint32_t data;
 };
-static_assert(sizeof(ChunkVertex) == 24);
+static_assert(sizeof(ChunkVertex) == 12);
+
+// Coordinates are exact small integers (greedy quads land on block edges), so
+// the float positions/UVs pack losslessly into two uint32s. Shared by the
+// mesher and the dropped-item cubes that reuse the chunk vertex format.
+[[nodiscard]] constexpr ChunkVertex packChunkVertex(int x, int y, int z, int u, int v,
+                                                    std::uint32_t data) noexcept {
+    return ChunkVertex{
+        static_cast<std::uint32_t>(x) | (static_cast<std::uint32_t>(z) << 5) |
+            (static_cast<std::uint32_t>(y) << 10),
+        static_cast<std::uint32_t>(u) | (static_cast<std::uint32_t>(v) << 16),
+        data,
+    };
+}
 
 struct ChunkMeshData {
     std::vector<ChunkVertex> vertices;

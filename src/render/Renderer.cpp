@@ -23,10 +23,11 @@ constexpr GLenum kTextureFreeMemAti = 0x87FC; // GL_TEXTURE_FREE_MEMORY_ATI
 void setupChunkAttributes() {
     constexpr GLsizei stride = sizeof(ChunkVertex);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<const void*>(0));
+    glVertexAttribIPointer(0, 1, GL_UNSIGNED_INT, stride,
+                           reinterpret_cast<const void*>(offsetof(ChunkVertex, pos)));
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride,
-                          reinterpret_cast<const void*>(offsetof(ChunkVertex, u)));
+    glVertexAttribIPointer(1, 1, GL_UNSIGNED_INT, stride,
+                           reinterpret_cast<const void*>(offsetof(ChunkVertex, uv)));
     glEnableVertexAttribArray(2);
     glVertexAttribIPointer(2, 1, GL_UNSIGNED_INT, stride,
                            reinterpret_cast<const void*>(offsetof(ChunkVertex, data)));
@@ -42,27 +43,28 @@ void setupChunkAttributes() {
         std::uint8_t tile;
     };
     const BlockInfo& info = blockInfo(type);
-    const float h = 0.5f;
+    // Unit cube spanning [0,1]^3; the shader's uCenter=0.5 recenters it so
+    // uScale shrinks it about the drop's origin. Integer corners pack cleanly.
     const std::array<Face, 6> faces{{
-        {{glm::vec3{h, -h, -h}, {h, h, -h}, {h, h, h}, {h, -h, h}}, 0, info.sideTile},
-        {{glm::vec3{-h, -h, -h}, {-h, -h, h}, {-h, h, h}, {-h, h, -h}}, 1, info.sideTile},
-        {{glm::vec3{-h, h, -h}, {-h, h, h}, {h, h, h}, {h, h, -h}}, 2, info.topTile},
-        {{glm::vec3{-h, -h, -h}, {h, -h, -h}, {h, -h, h}, {-h, -h, h}}, 3, info.bottomTile},
-        {{glm::vec3{-h, -h, h}, {h, -h, h}, {h, h, h}, {-h, h, h}}, 4, info.sideTile},
-        {{glm::vec3{-h, -h, -h}, {-h, h, -h}, {h, h, -h}, {h, -h, -h}}, 5, info.sideTile},
+        {{glm::vec3{1, 0, 0}, {1, 1, 0}, {1, 1, 1}, {1, 0, 1}}, 0, info.sideTile},
+        {{glm::vec3{0, 0, 0}, {0, 0, 1}, {0, 1, 1}, {0, 1, 0}}, 1, info.sideTile},
+        {{glm::vec3{0, 1, 0}, {0, 1, 1}, {1, 1, 1}, {1, 1, 0}}, 2, info.topTile},
+        {{glm::vec3{0, 0, 0}, {1, 0, 0}, {1, 0, 1}, {0, 0, 1}}, 3, info.bottomTile},
+        {{glm::vec3{0, 0, 1}, {1, 0, 1}, {1, 1, 1}, {0, 1, 1}}, 4, info.sideTile},
+        {{glm::vec3{0, 0, 0}, {0, 1, 0}, {1, 1, 0}, {1, 0, 0}}, 5, info.sideTile},
     }};
-    constexpr std::array<std::array<float, 2>, 4> kUvs{{{0, 0}, {1, 0}, {1, 1}, {0, 1}}};
+    constexpr std::array<std::array<int, 2>, 4> kUvs{{{0, 0}, {1, 0}, {1, 1}, {0, 1}}};
 
     ChunkMeshData data;
     for (const Face& face : faces) {
         const auto base = static_cast<std::uint32_t>(data.vertices.size());
         for (std::size_t i = 0; i < 4; ++i) {
-            data.vertices.push_back(ChunkVertex{
-                face.corners[i].x, face.corners[i].y, face.corners[i].z,
-                kUvs[i][0], kUvs[i][1],
-                static_cast<std::uint32_t>(face.tile) | (3u << 8) | (face.normalIndex << 10) |
-                    (15u << 17),
-            });
+            const glm::vec3& c = face.corners[i];
+            const std::uint32_t vdata = static_cast<std::uint32_t>(face.tile) | (3u << 8) |
+                                        (face.normalIndex << 10) | (15u << 17);
+            data.vertices.push_back(packChunkVertex(static_cast<int>(c.x), static_cast<int>(c.y),
+                                                    static_cast<int>(c.z), kUvs[i][0], kUvs[i][1],
+                                                    vdata));
         }
         for (const std::uint32_t i : {0u, 1u, 2u, 0u, 2u, 3u}) {
             data.indices.push_back(base + i);
@@ -238,6 +240,7 @@ void Renderer::render(const FrameParams& params) {
     m_chunkShader.setFloat("uSkyLight", params.skyLight);
     m_chunkShader.setVec3("uSunDir", params.sunDirection);
     m_chunkShader.setFloat("uScale", 1.0f);
+    m_chunkShader.setFloat("uCenter", 0.0f);
     m_chunkShader.setFloat("uLightScale", 1.0f);
     m_chunkShader.setInt("uAtlas", 0);
     m_atlas.bind(0);
@@ -327,6 +330,7 @@ void Renderer::drawDrops(std::span<const DropDraw> drops) {
     }
     m_chunkShader.use();
     m_chunkShader.setFloat("uScale", 0.3f);
+    m_chunkShader.setFloat("uCenter", 0.5f); // recenter the 0..1 cube on its origin
     for (const DropDraw& drop : drops) {
         m_chunkShader.setFloat("uLightScale", drop.light);
         m_chunkShader.setVec3("uChunkOrigin", drop.position);
@@ -335,6 +339,7 @@ void Renderer::drawDrops(std::span<const DropDraw> drops) {
         glDrawElements(GL_TRIANGLES, mesh.indexCount, GL_UNSIGNED_INT, nullptr);
     }
     m_chunkShader.setFloat("uScale", 1.0f);
+    m_chunkShader.setFloat("uCenter", 0.0f);
     m_chunkShader.setFloat("uLightScale", 1.0f);
     glBindVertexArray(0);
 }

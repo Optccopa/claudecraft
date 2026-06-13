@@ -1,7 +1,9 @@
 #version 330 core
 
-layout(location = 0) in vec3 aPos;
-layout(location = 1) in vec2 aUv;
+// packed position: x | z << 5 | y << 10
+layout(location = 0) in uint aPos;
+// packed texcoords: u | v << 16 (block units)
+layout(location = 1) in uint aUv;
 // tile | ao << 8 | normalIndex << 10 | skyLight << 13 | blockLight << 17
 layout(location = 2) in uint aData;
 
@@ -10,6 +12,7 @@ uniform vec3 uChunkOrigin;
 uniform float uSkyLight; // day/night scale applied to the sky channel
 uniform vec3 uSunDir;
 uniform float uScale;      // 1.0 for chunks; <1 for dropped-item mini-cubes
+uniform float uCenter;     // 0 for chunks; 0.5 recenters the unit drop cube
 uniform float uLightScale; // 1.0 for chunks; drops bake their cell's light here
 
 out vec2 vUv;
@@ -26,9 +29,11 @@ const vec3 kNormals[6] = vec3[6](
 const float kAoCurve[4] = float[4](0.45, 0.65, 0.85, 1.0);
 
 void main() {
-    vec3 worldPos = uChunkOrigin + aPos * uScale;
+    vec3 localPos = vec3(float(aPos & 0x1Fu), float((aPos >> 10u) & 0x1FFu),
+                         float((aPos >> 5u) & 0x1Fu));
+    vec3 worldPos = uChunkOrigin + (localPos - uCenter) * uScale;
     gl_Position = uViewProj * vec4(worldPos, 1.0);
-    vUv = aUv;
+    vUv = vec2(float(aUv & 0xFFFFu), float(aUv >> 16u));
     vTile = aData & 0xFFu;
     float ao = kAoCurve[(aData >> 8u) & 0x3u];
     vec3 normal = kNormals[(aData >> 10u) & 0x7u];

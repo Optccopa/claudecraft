@@ -28,8 +28,9 @@ through terrain.
 
 ## Chunk shader contract
 
-Vertex input is the 24-byte `ChunkVertex` (see [meshing.md](meshing.md) for
-the packed `data` bitfield and the `fract()` atlas trick). Uniforms:
+Vertex input is the 12-byte `ChunkVertex` — packed `pos`/`uv`/`data` uint32s
+(see [meshing.md](meshing.md) for the bit layout and the `fract()` atlas
+trick), all unpacked in the vertex shader. Uniforms:
 
 | Uniform | Source |
 |---|---|
@@ -39,7 +40,7 @@ the packed `data` bitfield and the `fract()` atlas trick). Uniforms:
 | `uSkyLight` | 0..1 scale on the vertex sky-light channel (`FrameParams::skyLight`) |
 | `uSunDir` | unit sun direction from `render/Sky` (`FrameParams::sunDirection`) |
 | `uAlpha` | 1.0 opaque pass, 0.65 water pass |
-| `uScale` / `uLightScale` | 1.0 for chunk passes; `Renderer::drawDrops` shrinks per-type unit cubes to 0.3 and feeds each drop's sampled cell light (see [gameplay.md](gameplay.md)) |
+| `uScale` / `uCenter` / `uLightScale` | 1 / 0 / 1 for chunk passes; `Renderer::drawDrops` shrinks the per-type 0..1 cube to 0.3, recenters it with `uCenter`=0.5, and feeds each drop's sampled cell light (see [gameplay.md](gameplay.md)) |
 
 Sky colour, sun direction and the sky-light scale all come from one
 `skyStateAt(timeOfDay)` call (see the day/night section of
