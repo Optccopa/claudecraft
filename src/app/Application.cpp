@@ -17,7 +17,6 @@ namespace cc {
 namespace {
 
 constexpr double kFixedDt = 1.0 / 60.0;
-constexpr float kReachDistance = 5.5f;
 constexpr float kEditRepeatDelay = 0.22f;
 constexpr float kMouseSensitivity = 0.09f;
 constexpr double kDayLengthSeconds = 600.0;
@@ -151,6 +150,7 @@ void Application::startGame(const WorldInfo& info) {
     m_world->setSmoothLighting(m_settings.smoothLighting);
     const float spawnY = static_cast<float>(m_world->generator().surfaceHeight(8, 8)) + 2.5f;
     m_player = Player{glm::vec3{8.5f, spawnY, 8.5f}};
+    m_player.setSpeedMultiplier(m_settings.playerSpeed);
     m_currentWorld = info;
     m_worldTime = info.timeOfDay;
 
@@ -527,7 +527,7 @@ void Application::updatePlaying(float frameDt, const glm::ivec2& fbSize, double&
 
     const glm::vec3 eye = m_player.eyePosition(1.0f);
     const RaycastHit target = raycast(
-        *m_world, eye, Camera::direction(m_player.yaw(), m_player.pitch()), kReachDistance);
+        *m_world, eye, Camera::direction(m_player.yaw(), m_player.pitch()), m_settings.reach);
 
     handleGameplayInput(frameDt, target);
 
@@ -844,15 +844,19 @@ void Application::updateSettings(float frameDt, const glm::ivec2& fbSize) {
 
     // Category tabs; the active one keeps a permanent highlight ring.
     const float tabY = height * 0.92f - 110.0f;
-    constexpr float kTabWidth = 200.0f;
-    constexpr float kTabGap = 18.0f;
-    const std::array<std::pair<const char*, SettingsCategory>, 3> tabs{{
+    constexpr float kTabWidth = 180.0f;
+    constexpr float kTabGap = 14.0f;
+    const std::array<std::pair<const char*, SettingsCategory>, 4> tabs{{
         {"VIDEO", SettingsCategory::Video},
         {"CONTROLS", SettingsCategory::Controls},
         {"PACKS", SettingsCategory::Packs},
+        {"CHEATS", SettingsCategory::Cheats},
     }};
+    const float tabSpan = (kTabWidth + kTabGap);
     for (std::size_t i = 0; i < tabs.size(); ++i) {
-        const float tabX = centerX + (static_cast<float>(i) - 1.0f) * (kTabWidth + kTabGap);
+        const float tabX =
+            centerX + (static_cast<float>(i) - (static_cast<float>(tabs.size()) - 1.0f) * 0.5f) *
+                          tabSpan;
         if (m_settingsCategory == tabs[i].second) {
             m_hud.rect(tabX - kTabWidth * 0.5f - 3.0f, tabY - 3.0f, kTabWidth + 6.0f,
                        kButtonHeight + 6.0f, Hud::RectStyle::Bright);
@@ -902,6 +906,23 @@ void Application::updateSettings(float frameDt, const glm::ivec2& fbSize) {
         }
     } else if (m_settingsCategory == SettingsCategory::Packs) {
         drawPackSettings(fbSize, rowY);
+    } else if (m_settingsCategory == SettingsCategory::Cheats) {
+        constexpr float kCheatStep = 64.0f;
+        if (settingRow(fbSize, rowY, "PLAYER SPEED",
+                       std::format("{:.1f}x", m_settings.playerSpeed))) {
+            m_settings.playerSpeed += 0.5f;
+            if (m_settings.playerSpeed > 8.01f) {
+                m_settings.playerSpeed = 0.5f;
+            }
+            m_player.setSpeedMultiplier(m_settings.playerSpeed);
+        }
+        rowY -= kCheatStep;
+        if (settingRow(fbSize, rowY, "REACH", std::format("{:.0f} blocks", m_settings.reach))) {
+            m_settings.reach += 1.0f;
+            if (m_settings.reach > 12.01f) {
+                m_settings.reach = 3.0f;
+            }
+        }
     } else {
         // Finish a pending rebind with the next pressed key (ESC cancels via
         // the top-level handler).

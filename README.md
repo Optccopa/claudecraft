@@ -35,7 +35,7 @@ If your MSVC version differs, update `compilerPath` in `.vscode/c_cpp_properties
 
 The game opens on a main menu with a randomly seeded terrain fly-over in the background. Play leads to the worlds screen: type a name, pick creative or survival, and CREATE (random seed) — or load an existing world from the list. Worlds have a persistent day/night cycle, inventory, caves with ores, and biomes (plains, forest, desert, mountains, ocean). Pause quits back to the menu. The window title shows the world, FPS, position, and loaded/drawn chunk counts.
 
-Settings (from the main menu or pause) has VIDEO (render distance, FOV, vsync, fullscreen), CONTROLS (mouse sensitivity, invert Y, rebindable keys) and PACKS (enable/disable/reorder Minecraft resource packs at runtime) categories; values apply immediately and persist to `settings.txt`.
+Settings (from the main menu or pause) has VIDEO (render distance, FOV, vsync, fullscreen), CONTROLS (mouse sensitivity, invert Y, rebindable keys), PACKS (enable/disable/reorder Minecraft resource packs at runtime) and CHEATS (player speed multiplier, block reach) categories; values apply immediately and persist to `settings.txt`.
 
 ## Architecture
 

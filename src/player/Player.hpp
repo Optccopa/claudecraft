@@ -23,6 +23,7 @@ public:
     void setInput(const PlayerInput& input) noexcept { m_input = input; }
     void addLook(float yawDelta, float pitchDelta) noexcept;
     void toggleFly() noexcept { m_flying = !m_flying; }
+    void setSpeedMultiplier(float multiplier) noexcept { m_speedMultiplier = multiplier; }
 
     void fixedUpdate(float dt, const World& world);
 
@@ -50,6 +51,7 @@ private:
     float m_pitch = 0.0f;
     bool m_flying = false;
     bool m_onGround = false;
+    float m_speedMultiplier = 1.0f; // cheat: scales walk + fly speed
     PlayerInput m_input;
 };
 

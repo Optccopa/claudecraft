@@ -37,7 +37,7 @@ public:
 private:
     enum class GameState { Menu, Playing, Paused, Settings };
     enum class MenuScreen { Main, Worlds };
-    enum class SettingsCategory { Video, Controls, Packs };
+    enum class SettingsCategory { Video, Controls, Packs, Cheats };
 
     void enterMenu();
     void startGame(const WorldInfo& info);

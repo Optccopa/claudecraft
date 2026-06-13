@@ -97,6 +97,10 @@ Settings Settings::load(const std::filesystem::path& path) {
             parts >> settings.sensitivity;
         } else if (key == "invertY") {
             parts >> settings.invertY;
+        } else if (key == "playerSpeed") {
+            parts >> settings.playerSpeed;
+        } else if (key == "reach") {
+            parts >> settings.reach;
         } else if (key == "pack") {
             // Pack names contain spaces, so take the rest of the line verbatim.
             std::string name;
@@ -116,6 +120,8 @@ Settings Settings::load(const std::filesystem::path& path) {
     settings.renderDistance = std::clamp(settings.renderDistance, 4, 16);
     settings.fovDeg = std::clamp(settings.fovDeg, 60, 110);
     settings.sensitivity = std::clamp(settings.sensitivity, 0.2f, 3.0f);
+    settings.playerSpeed = std::clamp(settings.playerSpeed, 0.5f, 8.0f);
+    settings.reach = std::clamp(settings.reach, 3.0f, 12.0f);
     for (const KeyEntry& entry : kKeyEntries) {
         settings.keys.*entry.member =
             std::clamp(settings.keys.*entry.member, 0, GLFW_KEY_LAST);
@@ -126,9 +132,10 @@ Settings Settings::load(const std::filesystem::path& path) {
 void Settings::save(const std::filesystem::path& path) const {
     std::ofstream file(path, std::ios::trunc);
     file << std::format("renderDistance {}\nfovDeg {}\nvsync {:d}\nfullscreen {:d}\n"
-                        "smoothLighting {:d}\nsensitivity {}\ninvertY {:d}\n",
+                        "smoothLighting {:d}\nsensitivity {}\ninvertY {:d}\n"
+                        "playerSpeed {}\nreach {}\n",
                         renderDistance, fovDeg, vsync, fullscreen, smoothLighting, sensitivity,
-                        invertY);
+                        invertY, playerSpeed, reach);
     for (const KeyEntry& entry : kKeyEntries) {
         file << entry.name << ' ' << keys.*entry.member << '\n';
     }

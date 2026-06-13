@@ -124,13 +124,15 @@ void Player::fixedUpdate(float dt, const World& world) {
     }
 
     if (m_flying) {
-        glm::vec3 target = wish * kFlySpeed;
-        target.y = (m_input.jump ? kFlySpeed : 0.0f) - (m_input.descend ? kFlySpeed : 0.0f);
+        const float flySpeed = kFlySpeed * m_speedMultiplier;
+        glm::vec3 target = wish * flySpeed;
+        target.y = (m_input.jump ? flySpeed : 0.0f) - (m_input.descend ? flySpeed : 0.0f);
         m_velocity = target;
         m_onGround = false;
     } else {
-        m_velocity.x = wish.x * kWalkSpeed;
-        m_velocity.z = wish.z * kWalkSpeed;
+        const float walkSpeed = kWalkSpeed * m_speedMultiplier;
+        m_velocity.x = wish.x * walkSpeed;
+        m_velocity.z = wish.z * walkSpeed;
         m_velocity.y = std::max(m_velocity.y - kGravity * dt, -kTerminalVelocity);
         if (m_input.jump && m_onGround) {
             m_velocity.y = kJumpVelocity;

@@ -35,6 +35,8 @@ struct Settings {
     bool smoothLighting = true; // per-corner AO + light vs flat per-face
     float sensitivity = 1.0f;   // mouse look multiplier, 0.2..3.0
     bool invertY = false;
+    float playerSpeed = 1.0f;   // cheat: move-speed multiplier, 0.5..8.0
+    float reach = 5.5f;         // cheat: block reach distance, 3..12
     Keybinds keys = defaultKeybinds();
     // Enabled resource packs, highest texture priority first (filenames under
     // resourcepacks::kRoot). Empty = built-in/procedural atlas.
