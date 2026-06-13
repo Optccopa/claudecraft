@@ -27,31 +27,56 @@ constexpr int kDirtDepth = 3;
     return t * t * (3.0f - 2.0f * t);
 }
 
-void plantTree(Chunk& chunk, int lx, int surfaceY, int lz, std::uint32_t hash) {
-    const int trunkHeight = 4 + static_cast<int>(hash % 3u);
-    const int topY = surfaceY + trunkHeight;
-    if (topY + 2 >= Chunk::SizeY) {
-        return;
-    }
-    // Canopy: two 5x5-ish layers below the top, a plus-shape cap above.
-    for (int dy = trunkHeight - 2; dy <= trunkHeight + 1; ++dy) {
-        const int radius = (dy <= trunkHeight - 1) ? 2 : 1;
-        for (int dx = -radius; dx <= radius; ++dx) {
-            for (int dz = -radius; dz <= radius; ++dz) {
-                if (std::abs(dx) == radius && std::abs(dz) == radius && radius == 2) {
-                    continue; // clip corners for a rounder crown
-                }
-                const int x = lx + dx;
-                const int z = lz + dz;
-                const int y = surfaceY + dy;
-                if (chunk.at(x, y, z) == BlockType::Air) {
-                    chunk.set(x, y, z, BlockType::Leaves);
-                }
+void leafLayer(Chunk& chunk, int lx, int y, int lz, int radius, BlockType leaves) {
+    for (int dx = -radius; dx <= radius; ++dx) {
+        for (int dz = -radius; dz <= radius; ++dz) {
+            if (std::abs(dx) == radius && std::abs(dz) == radius && radius >= 2) {
+                continue; // clip corners for a rounder crown
+            }
+            if (chunk.at(lx + dx, y, lz + dz) == BlockType::Air) {
+                chunk.set(lx + dx, y, lz + dz, leaves);
             }
         }
     }
+}
+
+// Oak: stout trunk, two wide layers + cap. Spruce: tall conical skirt of
+// alternating radii. Cherry: short trunk under a broad radius-3 blossom
+// canopy (this shape is why cherry trees need a 3-block chunk margin).
+void plantTree(Chunk& chunk, int lx, int surfaceY, int lz, std::uint32_t hash, Biome biome) {
+    BlockType trunk = BlockType::Wood;
+    BlockType leaves = BlockType::Leaves;
+    int trunkHeight = 4 + static_cast<int>(hash % 3u);
+    if (biome == Biome::Taiga) {
+        trunk = BlockType::SpruceWood;
+        leaves = BlockType::SpruceLeaves;
+        trunkHeight = 6 + static_cast<int>(hash % 3u);
+    } else if (biome == Biome::CherryGrove) {
+        trunk = BlockType::CherryWood;
+        leaves = BlockType::CherryLeaves;
+        trunkHeight = 4 + static_cast<int>(hash % 2u);
+    }
+    if (surfaceY + trunkHeight + 2 >= Chunk::SizeY) {
+        return;
+    }
+
+    if (biome == Biome::Taiga) {
+        for (int dy = 3; dy <= trunkHeight; ++dy) {
+            leafLayer(chunk, lx, surfaceY + dy, lz, ((trunkHeight - dy) % 2 == 0) ? 1 : 2,
+                      leaves);
+        }
+        leafLayer(chunk, lx, surfaceY + trunkHeight + 1, lz, 0, leaves);
+    } else if (biome == Biome::CherryGrove) {
+        leafLayer(chunk, lx, surfaceY + trunkHeight - 1, lz, 3, leaves);
+        leafLayer(chunk, lx, surfaceY + trunkHeight, lz, 3, leaves);
+        leafLayer(chunk, lx, surfaceY + trunkHeight + 1, lz, 2, leaves);
+    } else {
+        for (int dy = trunkHeight - 2; dy <= trunkHeight + 1; ++dy) {
+            leafLayer(chunk, lx, surfaceY + dy, lz, (dy <= trunkHeight - 1) ? 2 : 1, leaves);
+        }
+    }
     for (int dy = 1; dy <= trunkHeight; ++dy) {
-        chunk.set(lx, surfaceY + dy, lz, BlockType::Wood);
+        chunk.set(lx, surfaceY + dy, lz, trunk);
     }
 }
 
@@ -64,6 +89,8 @@ std::string_view biomeName(Biome biome) noexcept {
     case Biome::Desert: return "desert";
     case Biome::Mountains: return "mountains";
     case Biome::Ocean: return "ocean";
+    case Biome::Taiga: return "taiga";
+    case Biome::CherryGrove: return "cherry grove";
     }
     return "?";
 }
@@ -72,6 +99,7 @@ TerrainGenerator::TerrainGenerator(std::uint32_t seed)
     : m_heightNoise{seed},
       m_biomeNoise{seed ^ 0x9E3779B9u},
       m_moistureNoise{seed ^ 0x165667B1u},
+      m_temperatureNoise{seed ^ 0xD6E8FEB8u},
       m_caveNoiseA{seed ^ 0x85EBCA6Bu},
       m_caveNoiseB{seed ^ 0xC2B2AE35u},
       m_oreNoise{seed ^ 0x27D4EB2Fu},
@@ -85,19 +113,30 @@ TerrainGenerator::BiomeFactors TerrainGenerator::factorsAt(int wx, int wz) const
                                                static_cast<float>(wz) * 0.0011f, 2, 2.0f, 0.5f);
     const float moisture = m_moistureNoise.fbm(static_cast<float>(wx) * 0.0009f,
                                                static_cast<float>(wz) * 0.0009f, 2, 2.0f, 0.5f);
+    const float temperature = m_temperatureNoise.fbm(
+        static_cast<float>(wx) * 0.0008f, static_cast<float>(wz) * 0.0008f, 2, 2.0f, 0.5f);
     return BiomeFactors{
         smoothstep(0.05f, 0.42f, continental),
         smoothstep(0.16f, 0.40f, -continental),
         moisture,
+        temperature,
     };
 }
 
+// Temperature splits before moisture so cold lowlands are taiga even when
+// wet, and the cherry band needs both warmth and some moisture.
 Biome TerrainGenerator::classify(const BiomeFactors& f) noexcept {
     if (f.ocean > 0.5f) {
         return Biome::Ocean;
     }
     if (f.mountain > 0.5f) {
         return Biome::Mountains;
+    }
+    if (f.temperature < -0.28f) {
+        return Biome::Taiga;
+    }
+    if (f.temperature > 0.30f && f.moisture > 0.05f) {
+        return Biome::CherryGrove;
     }
     if (f.moisture < -0.22f) {
         return Biome::Desert;
@@ -216,10 +255,17 @@ std::unique_ptr<Chunk> TerrainGenerator::generate(ChunkCoord coord) const {
             const int wz = coord.z * Chunk::SizeZ + lz;
             const Biome biome = biomeAt(wx, wz);
             std::uint32_t density = 0;
-            if (biome == Biome::Plains) {
-                density = 8;
-            } else if (biome == Biome::Forest) {
-                density = 55;
+            switch (biome) {
+            case Biome::Plains: density = 8; break;
+            case Biome::Forest: density = 55; break;
+            case Biome::Taiga: density = 45; break;
+            case Biome::CherryGrove: density = 30; break;
+            default: break;
+            }
+            // Cherry canopies reach radius 3, so they need the wider margin.
+            if (biome == Biome::CherryGrove &&
+                (lx < 3 || lx > Chunk::SizeX - 4 || lz < 3 || lz > Chunk::SizeZ - 4)) {
+                continue;
             }
             const std::uint32_t hash = hashCoords(wx, wz, m_seed);
             if (density == 0 || hash % 1000u >= density) {
@@ -227,7 +273,7 @@ std::unique_ptr<Chunk> TerrainGenerator::generate(ChunkCoord coord) const {
             }
             const int h = surfaceHeight(wx, wz);
             if (chunk->at(lx, h, lz) == BlockType::Grass) {
-                plantTree(*chunk, lx, h, lz, hash);
+                plantTree(*chunk, lx, h, lz, hash, biome);
             }
         }
     }

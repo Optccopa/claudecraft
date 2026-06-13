@@ -8,7 +8,8 @@ namespace {
 // Atlas tiles (4x4 grid, row 0 at the bottom of the texture):
 // Atlas tiles (8x8 grid): 0 stone, 1 dirt, 2 grass top, 3 grass side, 4 sand,
 // 5 water, 6 bark, 7 wood rings, 8 leaves, 9 plank, 10 snow, 11 bedrock,
-// 12 coal ore, 13 iron ore, 14 gold ore, 15 diamond ore, 16 glowstone
+// 12 coal ore, 13 iron ore, 14 gold ore, 15 diamond ore, 16 glowstone,
+// 17 cherry bark, 18 cherry leaves, 19 spruce bark, 20 spruce leaves
 constexpr std::array<BlockInfo, static_cast<std::size_t>(BlockType::Count)> kBlocks{{
     {0, 0, 0, 0, false, false, false, 0.0f},   // Air
     {0, 0, 0, 0, true, true, true, 1.5f},      // Stone
@@ -26,12 +27,17 @@ constexpr std::array<BlockInfo, static_cast<std::size_t>(BlockType::Count)> kBlo
     {14, 14, 14, 0, true, true, true, 3.0f},   // GoldOre
     {15, 15, 15, 0, true, true, true, 3.5f},   // DiamondOre
     {16, 16, 16, 15, true, true, true, 0.6f},  // Glowstone
+    {7, 17, 7, 0, true, true, true, 1.2f},     // CherryWood
+    {18, 18, 18, 0, true, true, true, 0.2f},   // CherryLeaves
+    {7, 19, 7, 0, true, true, true, 1.2f},     // SpruceWood
+    {20, 20, 20, 0, true, true, true, 0.2f},   // SpruceLeaves
 }};
 
 constexpr std::array<std::string_view, static_cast<std::size_t>(BlockType::Count)> kNames{
     "air",      "stone",    "dirt",  "grass",    "sand",        "water",
     "wood",     "leaves",   "plank", "snow",     "bedrock",     "coal ore",
-    "iron ore", "gold ore", "diamond ore", "glowstone",
+    "iron ore", "gold ore", "diamond ore", "glowstone", "cherry wood",
+    "cherry leaves", "spruce wood", "spruce leaves",
 };
 
 } // namespace

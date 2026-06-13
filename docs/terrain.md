@@ -13,6 +13,7 @@ Six `Noise` tables, all seeded from the world seed XOR a fixed salt:
 | `m_heightNoise` | 2D fBm height map |
 | `m_biomeNoise` | 2D continental field: mountains high, ocean basins low |
 | `m_moistureNoise` | 2D field splitting lowlands into desert/plains/forest |
+| `m_temperatureNoise` | 2D field carving out taiga (cold) and cherry grove (warm+wet) |
 | `m_caveNoiseA/B` | two independent 3D fields for cave carving |
 | `m_oreNoise` | one shared 3D field for all ore types |
 
@@ -30,20 +31,23 @@ height   = lerp(lerp(66 + n·5, 84 + n·52, mountain), 46 + n·5, ocean)
 ```
 
 Classification (`classify`, used by `biomeAt` and generation): ocean if
-`ocean > 0.5`, else mountains if `mountain > 0.5`, else moisture
-`m = fbm(wx·0.0009, 2 oct)` picks desert (`m < −0.22`), forest
+`ocean > 0.5`, else mountains if `mountain > 0.5`. Lowlands then split by
+temperature first — taiga (`t < −0.28`), cherry grove (`t > 0.30` and
+`m > 0.05`) — and finally moisture: desert (`m < −0.22`), forest
 (`m > 0.28`) or plains. Thresholds are the tuning knobs; the smoothstep
 windows control how wide the blend zones are.
 
 Per-biome differences:
 
-| Biome | Surface | Trees per 1000 columns |
-|---|---|---|
-| Plains | grass | 8 |
-| Forest | grass | 55 |
-| Desert | sand top + sand to `h−4` | 0 |
-| Mountains | grass, snow ≥ 108 | 0 |
-| Ocean | sand floor (~y 42–51), water to 62 | 0 |
+| Biome | Surface | Trees per 1000 columns | Tree |
+|---|---|---|---|
+| Plains | grass | 8 | oak |
+| Forest | grass | 55 | oak |
+| Taiga | grass | 45 | spruce: tall conical skirt |
+| Cherry grove | grass | 30 | cherry: broad radius-3 pink canopy |
+| Desert | sand top + sand to `h−4` | 0 | — |
+| Mountains | grass, snow ≥ 108 | 0 | — |
+| Ocean | sand floor (~y 42–51), water to 62 | 0 | — |
 
 Sea level 62. Column layering: bedrock at y 0, stone up to `h−4`, dirt (or
 sand) to `h−1`, then the biome top block; beaches stay sand for `h ≤ 63`
@@ -94,11 +98,11 @@ ore rarer; the depth gate moves where it appears.
 
 ## Trees
 
-Plains and forest only (densities in the biome table), on intact grass,
-gated by `hash(wx, wz, seed) % 1000`. Trunk 4–6, two-layer canopy with
-clipped corners. Trees keep a 2-block margin inside the chunk so the canopy
-never crosses a chunk border — the price of order-independent parallel
-generation (no cross-chunk structure writes, no pending-block queues).
+Densities and species per the biome table, on intact grass, gated by
+`hash(wx, wz, seed) % 1000`. Trees keep a margin inside the chunk so the
+canopy never crosses a chunk border (2 blocks, 3 for cherry's wider crown) —
+the price of order-independent parallel generation (no cross-chunk structure
+writes, no pending-block queues).
 
 ## Determinism rules
 

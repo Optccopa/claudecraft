@@ -84,6 +84,14 @@ struct Rgba {
         }
         return shade(214, 168, 92, 1.0f - 0.12f * n);
     }
+    case 17: // cherry bark: dark red-brown stripes
+        return shade(94, 56, 56, ((px % 4) < 2 ? 0.85f : 1.0f) - 0.1f * n);
+    case 18: // cherry leaves: blossom pink
+        return shade(238, 162, 192, 1.0f - 0.22f * n);
+    case 19: // spruce bark: dark grey-brown stripes
+        return shade(72, 56, 40, ((px % 4) < 2 ? 0.82f : 1.0f) - 0.1f * n);
+    case 20: // spruce needles: dark bluish green
+        return shade(38, 84, 56, 1.0f - 0.28f * n);
     case 12: // coal ore
     case 13: // iron ore
     case 14: // gold ore

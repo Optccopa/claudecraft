@@ -12,7 +12,15 @@ namespace cc {
 class Chunk;
 enum class BlockType : std::uint8_t;
 
-enum class Biome : std::uint8_t { Plains, Forest, Desert, Mountains, Ocean };
+enum class Biome : std::uint8_t {
+    Plains,
+    Forest,
+    Desert,
+    Mountains,
+    Ocean,
+    Taiga,
+    CherryGrove,
+};
 
 [[nodiscard]] std::string_view biomeName(Biome biome) noexcept;
 
@@ -34,9 +42,10 @@ public:
 
 private:
     struct BiomeFactors {
-        float mountain; // 0..1 blend toward mountain heights
-        float ocean;    // 0..1 blend toward the ocean floor
-        float moisture; // raw fBm, roughly -1..1
+        float mountain;    // 0..1 blend toward mountain heights
+        float ocean;       // 0..1 blend toward the ocean floor
+        float moisture;    // raw fBm, roughly -1..1
+        float temperature; // raw fBm, roughly -1..1
     };
 
     [[nodiscard]] BiomeFactors factorsAt(int wx, int wz) const noexcept;
@@ -47,6 +56,7 @@ private:
     Noise m_heightNoise;
     Noise m_biomeNoise;
     Noise m_moistureNoise;
+    Noise m_temperatureNoise;
     Noise m_caveNoiseA;
     Noise m_caveNoiseB;
     Noise m_oreNoise;

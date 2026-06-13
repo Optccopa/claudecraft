@@ -23,6 +23,10 @@ enum class BlockType : std::uint8_t {
     GoldOre,
     DiamondOre,
     Glowstone,
+    CherryWood,
+    CherryLeaves,
+    SpruceWood,
+    SpruceLeaves,
     Count
 };
 
