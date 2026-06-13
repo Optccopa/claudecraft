@@ -1,6 +1,6 @@
 # claudecraft
 
-![Title Screen](images/title_screen.png)
+![Title Screen](images/title_screen2.png)
 
 A Minecraft-style voxel game in modern C++20 — infinite streamed terrain, day/night, caves, ores, biomes, survival/creative modes, and full Minecraft resource-pack support. OpenGL 3.3 core via GLFW + GLAD, GLM math, stb_image. No engine, no CMake — the build is two `cl.exe` invocations driven by `.vscode/tasks.json`.
 
@@ -13,7 +13,7 @@ A Minecraft-style voxel game in modern C++20 — infinite streamed terrain, day/
 
 Output lands in `build/debug/claudecraft.exe` / `build/release/claudecraft.exe`. Run with the project root as working directory (it loads `shaders/` from there); `launch.json` already sets that. If your MSVC version differs, update `compilerPath` in `.vscode/c_cpp_properties.json` — the build tasks don't care, they use whatever `cl` is on `PATH`.
 
-![Create World Screen](images/world_creation.png)
+![Create World Screen](images/world_creation2.png)
 
 ## Playing
 
@@ -37,7 +37,7 @@ Settings (main menu or pause) spans four tabs, all applied live: **VIDEO** (rend
 
 ## Biomes & world generation
 
-![Biomes](images/biome_generation.png)
+![Biomes](images/biome_generation2.png)
 
 Everything in a world is a pure function of its seed, so the same seed always rebuilds the same world no matter what order chunks load in. Terrain starts from a single **continental** noise field that drives both extremes at once — high pushes up into **mountains**, low sinks into **ocean** basins — which means coastlines naturally pass through plains-height ground and mountains can never sit inside the sea.
 
@@ -65,7 +65,7 @@ Each world is a directory `saves/<name>/`, and worlds are **sparse** — only ch
 
 claudecraft loads **real Minecraft resource packs**. Drop any vanilla pack — `.zip` or an extracted folder — into `%LOCALAPPDATA%/.claudecraft/texture_packs/`, then open **Settings → PACKS** to enable, disable and reorder them at runtime (no restart).
 
-![Resource Packs](images/texture_packs.png)
+![Resource Packs](images/texture_packs2.png)
 
 Packs **stack** exactly like Minecraft's: for each block, the texture comes from the highest enabled pack that provides it, so you can layer a small override on top of a base pack. Block ids match Minecraft exactly (`grass_block`, `oak_log`, `diamond_ore`, …), so a pack's textures resolve by name with no remapping. The loader handles the Minecraft details too: greyscale grass/foliage/water get tinted, animated textures (like water) use their first frame, and HD packs are downscaled to the atlas. Anything no enabled pack supplies shows up **magenta** so a missing texture is obvious. With no packs enabled it falls back to a bundled `textures/atlas.png`, then to a built-in procedural atlas — so the game always runs, even with no art assets at all.
 
