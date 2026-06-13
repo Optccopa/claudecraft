@@ -167,10 +167,6 @@ std::shared_ptr<const MeshInput> World::makeMeshInput(const Chunk& center) const
     input->coord = center.coord();
     input->revision = center.meshRevision();
     input->smoothLighting = m_smoothLighting;
-    const std::size_t cells =
-        static_cast<std::size_t>(MeshInput::PaddedX) * MeshInput::PaddedZ * Chunk::SizeY;
-    input->blocks.resize(cells);
-    input->light.resize(cells);
 
     // The padded region only ever spans the 3x3 chunks around the centre, and
     // those are fixed for the whole copy — fetch them once instead of hashing

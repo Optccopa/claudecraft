@@ -4,6 +4,7 @@
 #include "world/Chunk.hpp"
 #include "world/ChunkCoord.hpp"
 
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -30,12 +31,14 @@ struct ChunkMeshData {
 struct MeshInput {
     static constexpr int PaddedX = Chunk::SizeX + 2;
     static constexpr int PaddedZ = Chunk::SizeZ + 2;
+    static constexpr std::size_t Cells =
+        static_cast<std::size_t>(PaddedX) * PaddedZ * Chunk::SizeY;
 
     ChunkCoord coord;
     std::uint32_t revision = 0;
-    bool smoothLighting = true;        // off: flat per-face light, no AO
-    std::vector<BlockType> blocks;     // PaddedX * PaddedZ * SizeY
-    std::vector<std::uint8_t> light;   // same layout, packed sky | block << 4
+    bool smoothLighting = true;             // off: flat per-face light, no AO
+    std::array<BlockType, Cells> blocks{};  // PaddedX * PaddedZ * SizeY
+    std::array<std::uint8_t, Cells> light{}; // same layout, packed sky | block << 4
 
     // x and z accept [-1, Size]; any y outside [0, SizeY) reads as Air.
     [[nodiscard]] BlockType at(int x, int y, int z) const noexcept {
