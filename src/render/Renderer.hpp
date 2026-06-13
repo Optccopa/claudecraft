@@ -10,6 +10,7 @@
 #include <glm/vec3.hpp>
 
 #include <cstddef>
+#include <filesystem>
 #include <optional>
 #include <span>
 #include <unordered_map>
@@ -46,6 +47,12 @@ public:
     };
     // Call after render(): reuses the frame's chunk-shader state.
     void drawDrops(std::span<const DropDraw> drops);
+
+    // Rebuilds the atlas from an ordered pack stack (highest priority first);
+    // an empty span restores the built-in/procedural atlas. Main thread only.
+    void setResourcePacks(std::span<const std::filesystem::path> packs) {
+        m_atlas = TextureAtlas::create(packs);
+    }
 
     [[nodiscard]] const TextureAtlas& atlas() const noexcept { return m_atlas; }
     [[nodiscard]] std::size_t meshCount() const noexcept { return m_chunks.size(); }

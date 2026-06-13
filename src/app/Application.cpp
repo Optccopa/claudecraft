@@ -11,6 +11,7 @@
 #include <format>
 #include <random>
 #include <span>
+#include <utility>
 
 namespace cc {
 namespace {
@@ -117,6 +118,7 @@ Application::Application()
     m_window.setVsync(m_settings.vsync);
     m_window.setFullscreen(m_settings.fullscreen);
     logInfo(std::format("{} workers", m_pool.threadCount()));
+    applyResourcePacks();
     enterMenu();
 }
 
@@ -186,6 +188,18 @@ void Application::leaveSettings() {
     if (m_state == GameState::Menu) {
         m_menuScreen = MenuScreen::Main;
     }
+}
+
+void Application::applyResourcePacks() {
+    std::vector<std::filesystem::path> paths;
+    paths.reserve(m_settings.resourcePacks.size());
+    for (const std::string& name : m_settings.resourcePacks) {
+        const std::filesystem::path path = resourcepacks::pathFor(name);
+        if (std::filesystem::exists(path)) {
+            paths.push_back(path);
+        }
+    }
+    m_renderer.setResourcePacks(paths);
 }
 
 void Application::setPaused(bool paused) {
@@ -808,17 +822,23 @@ void Application::updateSettings(float frameDt, const glm::ivec2& fbSize) {
 
     // Category tabs; the active one keeps a permanent highlight ring.
     const float tabY = height * 0.92f - 110.0f;
-    constexpr float kTabWidth = 220.0f;
-    const float videoX = centerX - kTabWidth * 0.5f - 12.0f;
-    const float controlsX = centerX + kTabWidth * 0.5f + 12.0f;
-    const float activeX = m_settingsCategory == SettingsCategory::Video ? videoX : controlsX;
-    m_hud.rect(activeX - kTabWidth * 0.5f - 3.0f, tabY - 3.0f, kTabWidth + 6.0f,
-               kButtonHeight + 6.0f, Hud::RectStyle::Bright);
-    if (button(fbSize, videoX, tabY, "VIDEO", kTabWidth)) {
-        m_settingsCategory = SettingsCategory::Video;
-    }
-    if (button(fbSize, controlsX, tabY, "CONTROLS", kTabWidth)) {
-        m_settingsCategory = SettingsCategory::Controls;
+    constexpr float kTabWidth = 200.0f;
+    constexpr float kTabGap = 18.0f;
+    const std::array<std::pair<const char*, SettingsCategory>, 3> tabs{{
+        {"VIDEO", SettingsCategory::Video},
+        {"CONTROLS", SettingsCategory::Controls},
+        {"PACKS", SettingsCategory::Packs},
+    }};
+    for (std::size_t i = 0; i < tabs.size(); ++i) {
+        const float tabX = centerX + (static_cast<float>(i) - 1.0f) * (kTabWidth + kTabGap);
+        if (m_settingsCategory == tabs[i].second) {
+            m_hud.rect(tabX - kTabWidth * 0.5f - 3.0f, tabY - 3.0f, kTabWidth + 6.0f,
+                       kButtonHeight + 6.0f, Hud::RectStyle::Bright);
+        }
+        if (button(fbSize, tabX, tabY, tabs[i].first, kTabWidth)) {
+            m_settingsCategory = tabs[i].second;
+            m_rebinding = -1;
+        }
     }
 
     float rowY = tabY - kButtonHeight - 60.0f;
@@ -858,6 +878,8 @@ void Application::updateSettings(float frameDt, const glm::ivec2& fbSize) {
                 m_menuWorld->setSmoothLighting(m_settings.smoothLighting);
             }
         }
+    } else if (m_settingsCategory == SettingsCategory::Packs) {
+        drawPackSettings(fbSize, rowY);
     } else {
         // Finish a pending rebind with the next pressed key (ESC cancels via
         // the top-level handler).
@@ -896,6 +918,83 @@ void Application::updateSettings(float frameDt, const glm::ivec2& fbSize) {
     if (button(fbSize, centerX, 24.0f, "BACK")) {
         leaveSettings();
     }
+}
+
+void Application::drawPackSettings(const glm::ivec2& fbSize, float topY) {
+    const float centerX = static_cast<float>(fbSize.x) * 0.5f;
+    constexpr float kNameScale = 2.0f;
+    constexpr float kRowStep = 56.0f;
+    const float nameX = centerX - 380.0f;
+    const auto label = [&](float bottomY, const std::string& text) {
+        m_hud.text(nameX, bottomY + kButtonHeight * 0.5f + 4.0f * kNameScale, kNameScale, text);
+    };
+
+    // Deferred so we never mutate the list mid-draw; one action per frame.
+    int moveUp = -1;
+    int moveDown = -1;
+    int removeAt = -1;
+    std::string addName;
+
+    float rowY = topY;
+    m_hud.text(nameX, rowY + kButtonHeight, kNameScale, "ENABLED");
+    rowY -= kButtonHeight * 0.6f;
+
+    const int enabledCount = static_cast<int>(m_settings.resourcePacks.size());
+    if (enabledCount == 0) {
+        label(rowY, "(none)");
+        rowY -= kRowStep;
+    }
+    for (int i = 0; i < enabledCount; ++i) {
+        label(rowY, std::format("{}. {}", i + 1, m_settings.resourcePacks[static_cast<std::size_t>(i)]));
+        if (i > 0 && button(fbSize, centerX + 70.0f, rowY, "/\\", 80.0f)) {
+            moveUp = i;
+        }
+        if (i < enabledCount - 1 && button(fbSize, centerX + 160.0f, rowY, "\\/", 80.0f)) {
+            moveDown = i;
+        }
+        if (button(fbSize, centerX + 290.0f, rowY, "DISABLE", 140.0f)) {
+            removeAt = i;
+        }
+        rowY -= kRowStep;
+    }
+
+    rowY -= kButtonHeight * 0.4f;
+    m_hud.text(nameX, rowY + kButtonHeight, kNameScale, "AVAILABLE");
+    rowY -= kButtonHeight * 0.6f;
+
+    const std::vector<std::string> avail = resourcepacks::available();
+    bool anyDisabled = false;
+    for (const std::string& name : avail) {
+        if (std::find(m_settings.resourcePacks.begin(), m_settings.resourcePacks.end(), name) !=
+            m_settings.resourcePacks.end()) {
+            continue;
+        }
+        anyDisabled = true;
+        label(rowY, name);
+        if (button(fbSize, centerX + 290.0f, rowY, "ADD", 140.0f)) {
+            addName = name;
+        }
+        rowY -= kRowStep;
+    }
+    if (!anyDisabled) {
+        label(rowY, avail.empty() ? "(put .zip packs in texture_packs/)" : "(all enabled)");
+    }
+
+    if (moveUp >= 0) {
+        std::swap(m_settings.resourcePacks[static_cast<std::size_t>(moveUp)],
+                  m_settings.resourcePacks[static_cast<std::size_t>(moveUp - 1)]);
+    } else if (moveDown >= 0) {
+        std::swap(m_settings.resourcePacks[static_cast<std::size_t>(moveDown)],
+                  m_settings.resourcePacks[static_cast<std::size_t>(moveDown + 1)]);
+    } else if (removeAt >= 0) {
+        m_settings.resourcePacks.erase(m_settings.resourcePacks.begin() + removeAt);
+    } else if (!addName.empty()) {
+        m_settings.resourcePacks.insert(m_settings.resourcePacks.begin(), std::move(addName));
+    } else {
+        return;
+    }
+    m_settings.save(kSettingsPath);
+    applyResourcePacks();
 }
 
 void Application::updateTitle(double now) {

@@ -49,11 +49,37 @@ channel — glowstone-lit cave walls ignore sun direction. No shadow maps.
 ## Texture atlas
 
 8×8 tiles, sampled `GL_NEAREST`, **no mipmaps** (hard requirement — see
-meshing doc). `TextureAtlas::create` prefers `textures/atlas.png` (square,
-side divisible by 8, rows flipped on load because GL's origin is
-bottom-left) and falls back to a deterministic procedural atlas. Tile ids
-live in `Block.cpp`'s table; tile 0 is bottom-left of the texture. Unassigned
-tiles render magenta on purpose.
+meshing doc). Tile ids live in `Block.cpp`'s table; tile 0 is bottom-left of
+the texture. Unassigned tiles render magenta on purpose.
+
+`TextureAtlas::create` source order:
+
+1. **Minecraft resource pack stack** — an ordered list of `.zip`s or
+   extracted directories under `texture_packs/`, highest priority first.
+   `core/ZipArchive` reads each zip (stored + deflate, the latter via stb's raw
+   inflate, so no new dependency). Each atlas tile takes
+   `assets/minecraft/textures/{block,blocks}/<stem>.png` from the **topmost
+   pack that supplies it** (stems match `Block.cpp`'s Minecraft ids), so packs
+   layer like Minecraft's. A tile no enabled pack provides (or that fails to
+   decode everywhere) stays **magenta** — load counts are logged. Per tile the
+   loader nearest-samples to 16 px (HD packs downscale), takes the **top square
+   frame** of animated strips (e.g. `water_still`), and applies a fixed
+   multiply tint to the greyscale tiles Minecraft colours at runtime
+   (grass/foliage/water, plains+evergreen constants — no per-biome colormap).
+   The grass side composites the tinted `grass_block_side_overlay` over the
+   dirt-ish base.
+
+   The stack is edited at runtime in **Settings → PACKS** (enable/disable,
+   reorder); the order persists to `settings.txt` as `pack <name>` lines and
+   `Renderer::setResourcePacks` rebuilds the atlas in place. `Application`
+   applies the saved stack on startup.
+2. **`textures/atlas.png`** — a prebuilt 8×8 atlas (square, side divisible by
+   8, rows flipped on load because GL's origin is bottom-left).
+3. **Procedural** — deterministic painted fallback so the game runs with no
+   assets at all.
+
+Because tiles, not block ids, are the source, faces that share a tile share a
+texture (oak/cherry/spruce log tops all use `oak_log_top`).
 
 ## HUD
 

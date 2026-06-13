@@ -1,7 +1,9 @@
 #pragma once
 
 #include <filesystem>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace cc {
 
@@ -34,6 +36,9 @@ struct Settings {
     float sensitivity = 1.0f;   // mouse look multiplier, 0.2..3.0
     bool invertY = false;
     Keybinds keys = defaultKeybinds();
+    // Enabled resource packs, highest texture priority first (filenames under
+    // resourcepacks::kRoot). Empty = built-in/procedural atlas.
+    std::vector<std::string> resourcePacks;
 
     [[nodiscard]] static Settings load(const std::filesystem::path& path);
     void save(const std::filesystem::path& path) const;

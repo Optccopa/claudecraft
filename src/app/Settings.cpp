@@ -97,6 +97,13 @@ Settings Settings::load(const std::filesystem::path& path) {
             parts >> settings.sensitivity;
         } else if (key == "invertY") {
             parts >> settings.invertY;
+        } else if (key == "pack") {
+            // Pack names contain spaces, so take the rest of the line verbatim.
+            std::string name;
+            std::getline(parts >> std::ws, name);
+            if (!name.empty()) {
+                settings.resourcePacks.push_back(std::move(name));
+            }
         } else {
             for (const KeyEntry& entry : kKeyEntries) {
                 if (key == entry.name) {
@@ -124,6 +131,9 @@ void Settings::save(const std::filesystem::path& path) const {
                         invertY);
     for (const KeyEntry& entry : kKeyEntries) {
         file << entry.name << ' ' << keys.*entry.member << '\n';
+    }
+    for (const std::string& pack : resourcePacks) {
+        file << "pack " << pack << '\n';
     }
     if (!file) {
         logError(std::format("failed to write settings to '{}'", path.string()));

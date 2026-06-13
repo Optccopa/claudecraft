@@ -36,7 +36,7 @@ public:
 private:
     enum class GameState { Menu, Playing, Paused, Settings };
     enum class MenuScreen { Main, Worlds };
-    enum class SettingsCategory { Video, Controls };
+    enum class SettingsCategory { Video, Controls, Packs };
 
     void enterMenu();
     void startGame(const WorldInfo& info);
@@ -51,6 +51,9 @@ private:
     void updatePlaying(float frameDt, const glm::ivec2& fbSize, double& accumulator);
     void updatePaused(const glm::ivec2& fbSize);
     void updateSettings(float frameDt, const glm::ivec2& fbSize);
+    void drawPackSettings(const glm::ivec2& fbSize, float topY);
+    // Rebuilds the renderer atlas from the enabled packs (existing ones only).
+    void applyResourcePacks();
     // One settings line: right-aligned label, clickable value button.
     [[nodiscard]] bool settingRow(const glm::ivec2& fbSize, float bottomY, std::string_view label,
                                   std::string_view value);

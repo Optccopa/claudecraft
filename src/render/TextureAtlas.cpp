@@ -1,17 +1,24 @@
 #include "render/TextureAtlas.hpp"
 
 #include "core/Log.hpp"
+#include "core/ZipArchive.hpp"
 
 #include <glad/glad.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <filesystem>
 #include <format>
+#include <fstream>
 #include <memory>
+#include <optional>
+#include <span>
+#include <string>
+#include <string_view>
 #include <vector>
 
 namespace cc {
@@ -139,10 +146,246 @@ void uploadTexture(GLuint id, const void* data, int size) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 }
 
+constexpr Rgba kMissing{255, 0, 255, 255}; // unresolved pack texture screams magenta
+
+// Multiply tints for the textures Minecraft ships greyscale and colours at
+// runtime from the biome colormap. We use fixed plains/evergreen colours;
+// per-biome tinting would need colormap sampling the meshing path can't feed.
+enum class Tint { None, Grass, Foliage, Spruce, Water };
+
+[[nodiscard]] Rgba applyTint(Rgba c, Tint t) noexcept {
+    const auto mul = [](std::uint8_t v, int factor) {
+        return static_cast<std::uint8_t>(v * factor / 255);
+    };
+    switch (t) {
+    case Tint::Grass:   return {mul(c.r, 145), mul(c.g, 189), mul(c.b, 89), c.a};
+    case Tint::Foliage: return {mul(c.r, 119), mul(c.g, 171), mul(c.b, 47), c.a};
+    case Tint::Spruce:  return {mul(c.r, 97), mul(c.g, 153), mul(c.b, 97), c.a};
+    case Tint::Water:   return {mul(c.r, 63), mul(c.g, 118), mul(c.b, 228), c.a};
+    case Tint::None:    break;
+    }
+    return c;
+}
+
+// Atlas tile -> the resource-pack texture stem that fills it. Block ids (the
+// stems for full-cube faces) match Block.cpp's names; the rest are vanilla
+// face/top texture names.
+struct TileTex {
+    int tile;
+    const char* name;
+    Tint tint;
+};
+constexpr std::array<TileTex, 21> kTileTextures{{
+    {0, "stone", Tint::None},          {1, "dirt", Tint::None},
+    {2, "grass_block_top", Tint::Grass}, {3, "grass_block_side", Tint::None},
+    {4, "sand", Tint::None},           {5, "water_still", Tint::Water},
+    {6, "oak_log", Tint::None},        {7, "oak_log_top", Tint::None},
+    {8, "oak_leaves", Tint::Foliage},  {9, "oak_planks", Tint::None},
+    {10, "snow", Tint::None},          {11, "bedrock", Tint::None},
+    {12, "coal_ore", Tint::None},      {13, "iron_ore", Tint::None},
+    {14, "gold_ore", Tint::None},      {15, "diamond_ore", Tint::None},
+    {16, "glowstone", Tint::None},     {17, "cherry_log", Tint::None},
+    {18, "cherry_leaves", Tint::None}, {19, "spruce_log", Tint::None},
+    {20, "spruce_leaves", Tint::Spruce},
+}};
+
+// A resource pack, either a .zip or an extracted directory. Resolves block
+// textures under both the modern (block/) and legacy (blocks/) folder names.
+class ResourcePack {
+public:
+    [[nodiscard]] static std::optional<ResourcePack> open(const std::filesystem::path& path) {
+        std::error_code ec;
+        if (std::filesystem::is_directory(path, ec)) {
+            return ResourcePack{path, path.filename().string()};
+        }
+        if (auto zip = ZipArchive::open(path)) {
+            return ResourcePack{std::move(*zip), path.filename().string()};
+        }
+        return std::nullopt;
+    }
+
+    [[nodiscard]] const std::string& label() const noexcept { return m_label; }
+
+    // Raw PNG bytes for a block texture stem, or nullopt if the pack lacks it.
+    [[nodiscard]] std::optional<std::vector<unsigned char>> texture(const char* stem) const {
+        for (const char* folder : {"block", "blocks"}) {
+            const std::string rel =
+                std::format("assets/minecraft/textures/{}/{}.png", folder, stem);
+            if (m_zip) {
+                if (auto bytes = m_zip->read(rel)) {
+                    return bytes;
+                }
+            } else if (auto bytes = readDirFile(m_dir / rel)) {
+                return bytes;
+            }
+        }
+        return std::nullopt;
+    }
+
+private:
+    ResourcePack(ZipArchive zip, std::string label)
+        : m_zip{std::move(zip)}, m_label{std::move(label)} {}
+    ResourcePack(std::filesystem::path dir, std::string label)
+        : m_dir{std::move(dir)}, m_label{std::move(label)} {}
+
+    [[nodiscard]] static std::optional<std::vector<unsigned char>> readDirFile(
+        const std::filesystem::path& path) {
+        std::ifstream file(path, std::ios::binary | std::ios::ate);
+        if (!file) {
+            return std::nullopt;
+        }
+        const std::streamoff size = file.tellg();
+        std::vector<unsigned char> bytes(static_cast<std::size_t>(size));
+        file.seekg(0);
+        file.read(reinterpret_cast<char*>(bytes.data()), size);
+        return bytes;
+    }
+
+    std::optional<ZipArchive> m_zip;
+    std::filesystem::path m_dir;
+    std::string m_label;
+};
+
+// Decode PNG bytes and nearest-sample the first frame into a 16x16 tile.
+// Source rows are top-down (no flip); the atlas is bottom-origin, so the
+// vertical sample is mirrored. Animated textures stack frames vertically —
+// taking a square frame off the top yields frame 0. Tint is applied per texel.
+[[nodiscard]] std::optional<std::array<Rgba, kTilePixels * kTilePixels>> decodeTile(
+    std::span<const unsigned char> png, Tint tint) {
+    int w = 0;
+    int h = 0;
+    int channels = 0;
+    stbi_set_flip_vertically_on_load(0);
+    const std::unique_ptr<stbi_uc, decltype(&stbi_image_free)> data{
+        stbi_load_from_memory(png.data(), static_cast<int>(png.size()), &w, &h, &channels, 4),
+        &stbi_image_free};
+    if (data == nullptr || w <= 0 || h <= 0) {
+        return std::nullopt;
+    }
+    const int frame = std::min(w, h);
+    std::array<Rgba, kTilePixels * kTilePixels> tile{};
+    for (int ay = 0; ay < kTilePixels; ++ay) {
+        for (int ax = 0; ax < kTilePixels; ++ax) {
+            const int sx = ax * frame / kTilePixels;
+            const int sy = (kTilePixels - 1 - ay) * frame / kTilePixels;
+            const stbi_uc* p = data.get() + (static_cast<std::size_t>(sy) * w + sx) * 4;
+            tile[static_cast<std::size_t>(ay) * kTilePixels + ax] =
+                applyTint(Rgba{p[0], p[1], p[2], p[3]}, tint);
+        }
+    }
+    return tile;
+}
+
+void blitTile(std::vector<Rgba>& atlas, int tile,
+              const std::array<Rgba, kTilePixels * kTilePixels>& src) {
+    const int originX = (tile % TextureAtlas::TilesPerRow) * kTilePixels;
+    const int originY = (tile / TextureAtlas::TilesPerRow) * kTilePixels;
+    for (int py = 0; py < kTilePixels; ++py) {
+        for (int px = 0; px < kTilePixels; ++px) {
+            atlas[static_cast<std::size_t>((originY + py) * kAtlasPixels + originX + px)] =
+                src[static_cast<std::size_t>(py) * kTilePixels + px];
+        }
+    }
+}
+
+// Alpha-composite a (tinted) overlay tile over whatever already occupies the
+// atlas slot — Minecraft draws the grass side as dirt plus a tinted overlay.
+void compositeTile(std::vector<Rgba>& atlas, int tile,
+                   const std::array<Rgba, kTilePixels * kTilePixels>& overlay) {
+    const int originX = (tile % TextureAtlas::TilesPerRow) * kTilePixels;
+    const int originY = (tile / TextureAtlas::TilesPerRow) * kTilePixels;
+    for (int py = 0; py < kTilePixels; ++py) {
+        for (int px = 0; px < kTilePixels; ++px) {
+            const Rgba o = overlay[static_cast<std::size_t>(py) * kTilePixels + px];
+            Rgba& dst = atlas[static_cast<std::size_t>((originY + py) * kAtlasPixels + originX + px)];
+            const int a = o.a;
+            dst.r = static_cast<std::uint8_t>((o.r * a + dst.r * (255 - a)) / 255);
+            dst.g = static_cast<std::uint8_t>((o.g * a + dst.g * (255 - a)) / 255);
+            dst.b = static_cast<std::uint8_t>((o.b * a + dst.b * (255 - a)) / 255);
+        }
+    }
+}
+
+// First decodable texture for `name` across the pack stack (highest first),
+// or nullopt if no enabled pack supplies it.
+[[nodiscard]] std::optional<std::array<Rgba, kTilePixels * kTilePixels>> resolveTile(
+    std::span<const ResourcePack> packs, const char* name, Tint tint) {
+    for (const ResourcePack& pack : packs) {
+        if (const auto png = pack.texture(name)) {
+            if (auto tile = decodeTile(*png, tint)) {
+                return tile;
+            }
+        }
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] std::vector<Rgba> buildLayeredAtlas(std::span<const ResourcePack> packs) {
+    std::vector<Rgba> pixels(static_cast<std::size_t>(kAtlasPixels) * kAtlasPixels, kMissing);
+    int loaded = 0;
+    int missing = 0;
+    for (const TileTex& t : kTileTextures) {
+        if (const auto tile = resolveTile(packs, t.name, t.tint)) {
+            blitTile(pixels, t.tile, *tile);
+            ++loaded;
+        } else {
+            ++missing; // tile keeps its magenta fill
+        }
+    }
+    // Grass side overlay: tinted grass on top of the dirt-ish side texture.
+    if (const auto overlay = resolveTile(packs, "grass_block_side_overlay", Tint::Grass)) {
+        compositeTile(pixels, 3, *overlay);
+    }
+    logInfo(std::format("texture atlas: {} packs, {} tiles loaded, {} missing (magenta)",
+                        packs.size(), loaded, missing));
+    return pixels;
+}
+
 } // namespace
 
-TextureAtlas TextureAtlas::create() {
+namespace resourcepacks {
+
+std::vector<std::string> available() {
+    std::vector<std::string> names;
+    std::error_code ec;
+    for (const auto& entry : std::filesystem::directory_iterator(kRoot, ec)) {
+        if (entry.is_regular_file() && entry.path().extension() == ".zip") {
+            names.push_back(entry.path().filename().string());
+        } else if (entry.is_directory() &&
+                   std::filesystem::exists(entry.path() / "assets" / "minecraft" / "textures" /
+                                           "block")) {
+            names.push_back(entry.path().filename().string());
+        }
+    }
+    std::sort(names.begin(), names.end());
+    return names;
+}
+
+std::filesystem::path pathFor(std::string_view name) {
+    return std::filesystem::path(kRoot) / name;
+}
+
+} // namespace resourcepacks
+
+TextureAtlas TextureAtlas::create(std::span<const std::filesystem::path> packs) {
     gl::Texture2D texture;
+
+    if (!packs.empty()) {
+        std::vector<ResourcePack> opened;
+        opened.reserve(packs.size());
+        for (const std::filesystem::path& path : packs) {
+            if (auto pack = ResourcePack::open(path)) {
+                opened.push_back(std::move(*pack));
+            } else {
+                logError(std::format("resource pack '{}' is unreadable, skipping", path.string()));
+            }
+        }
+        if (!opened.empty()) {
+            const auto pixels = buildLayeredAtlas(opened);
+            uploadTexture(texture.id(), pixels.data(), kAtlasPixels);
+            return TextureAtlas{std::move(texture)};
+        }
+    }
 
     const char* path = "textures/atlas.png";
     if (std::filesystem::exists(path)) {

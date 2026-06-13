@@ -4,6 +4,9 @@ build/
 # World saves
 saves/
 
+# Resource packs (user-supplied Minecraft texture packs)
+texture_packs/
+
 # MSVC debris
 *.obj
 *.pdb

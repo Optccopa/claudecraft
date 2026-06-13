@@ -33,11 +33,13 @@ constexpr std::array<BlockInfo, static_cast<std::size_t>(BlockType::Count)> kBlo
     {20, 20, 20, 0, true, true, true, 0.2f},   // SpruceLeaves
 }};
 
+// Exact Minecraft block ids: also the stem of the texture file each tile
+// loads from a resource pack (see TextureAtlas).
 constexpr std::array<std::string_view, static_cast<std::size_t>(BlockType::Count)> kNames{
-    "air",      "stone",    "dirt",  "grass",    "sand",        "water",
-    "wood",     "leaves",   "plank", "snow",     "bedrock",     "coal ore",
-    "iron ore", "gold ore", "diamond ore", "glowstone", "cherry wood",
-    "cherry leaves", "spruce wood", "spruce leaves",
+    "air",       "stone",     "dirt",       "grass_block",   "sand",
+    "water",     "oak_log",   "oak_leaves", "oak_planks",    "snow_block",
+    "bedrock",   "coal_ore",  "iron_ore",   "gold_ore",      "diamond_ore",
+    "glowstone", "cherry_log", "cherry_leaves", "spruce_log", "spruce_leaves",
 };
 
 } // namespace
