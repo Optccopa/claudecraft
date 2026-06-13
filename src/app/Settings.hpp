@@ -17,6 +17,7 @@ struct Keybinds {
     int right;
     int jump;
     int descend;
+    int sprint;
     int fly;
     int inventory;
     int drop;

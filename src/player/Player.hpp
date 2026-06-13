@@ -11,6 +11,7 @@ struct PlayerInput {
     glm::vec2 move{0.0f}; // x: strafe right, y: forward (each -1..1)
     bool jump = false;    // also "fly up"
     bool descend = false; // fly down
+    bool sprint = false;  // move faster (ignored while crouching)
 };
 
 // First-person player: swept AABB collision against voxels, gravity/jump in

@@ -13,15 +13,19 @@ world (`WorldInfo::mode`).
 | Fly (F) | yes | disabled |
 | Inventory | full grid + infinite ALL BLOCKS palette | full grid only |
 
-## Crouching
+## Sprinting and crouching
 
-Holding the descend bind on foot (it still flies down in fly mode) crouches:
-walk speed drops to 30%, the AABB height shrinks from 1.8 to 1.5 m, and the
-eye follows. The box shrinks from the top, so `updateCrouch` lowers the centre
-to keep the feet planted and only stands back up when `headroomBlocked` clears.
-While crouched and grounded, each horizontal axis is moved through
-`moveHorizontalAxis`, which reverts the step if it would leave no ground under
-the footprint (`groundBelow`) — the classic sneak ledge-stop.
+Holding the sprint bind (default Left Shift) scales horizontal speed by 1.5×,
+both on foot and in fly mode (`PlayerInput::sprint`, `kSprintFactor`). Crouch
+takes precedence — a sneaking player stays slow even with sprint held.
+
+Holding the descend bind (default Left Ctrl) on foot (it still flies down in
+fly mode) crouches: walk speed drops to 30%, the AABB height shrinks from 1.8
+to 1.5 m, and the eye follows. The box shrinks from the top, so `updateCrouch`
+lowers the centre to keep the feet planted and only stands back up when
+`headroomBlocked` clears. While crouched and grounded, each horizontal axis is
+moved through `moveHorizontalAxis`, which reverts the step if it would leave no
+ground under the footprint (`groundBelow`) — the classic sneak ledge-stop.
 
 ## Inventory
 

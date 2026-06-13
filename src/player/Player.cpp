@@ -14,6 +14,7 @@ namespace {
 
 constexpr float kWalkSpeed = 4.5f;
 constexpr float kCrouchFactor = 0.3f; // walk-speed scale while sneaking
+constexpr float kSprintFactor = 1.5f; // walk/fly-speed scale while sprinting
 constexpr float kFlySpeed = 12.0f;
 constexpr float kGravity = 26.0f;
 constexpr float kJumpVelocity = 8.2f;
@@ -171,15 +172,18 @@ void Player::fixedUpdate(float dt, const World& world) {
         wish = glm::normalize(wish);
     }
 
+    // Sprint scales horizontal speed; crouch wins so sneaking stays slow.
+    const float sprintFactor = m_input.sprint ? kSprintFactor : 1.0f;
+
     if (m_flying) {
-        const float flySpeed = kFlySpeed * m_speedMultiplier;
+        const float flySpeed = kFlySpeed * m_speedMultiplier * sprintFactor;
         glm::vec3 target = wish * flySpeed;
         target.y = (m_input.jump ? flySpeed : 0.0f) - (m_input.descend ? flySpeed : 0.0f);
         m_velocity = target;
         m_onGround = false;
     } else {
-        const float walkSpeed =
-            kWalkSpeed * m_speedMultiplier * (m_crouching ? kCrouchFactor : 1.0f);
+        const float walkSpeed = kWalkSpeed * m_speedMultiplier *
+                                (m_crouching ? kCrouchFactor : sprintFactor);
         m_velocity.x = wish.x * walkSpeed;
         m_velocity.z = wish.z * walkSpeed;
         m_velocity.y = std::max(m_velocity.y - kGravity * dt, -kTerminalVelocity);

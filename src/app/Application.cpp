@@ -54,13 +54,14 @@ struct BindRow {
     const char* label;
     int Keybinds::* member;
 };
-constexpr std::array<BindRow, 9> kBindRows{{
+constexpr std::array<BindRow, 10> kBindRows{{
     {"FORWARD", &Keybinds::forward},
     {"BACK", &Keybinds::back},
     {"LEFT", &Keybinds::left},
     {"RIGHT", &Keybinds::right},
     {"JUMP", &Keybinds::jump},
     {"DESCEND", &Keybinds::descend},
+    {"SPRINT", &Keybinds::sprint},
     {"FLY", &Keybinds::fly},
     {"INVENTORY", &Keybinds::inventory},
     {"DROP", &Keybinds::drop},
@@ -321,6 +322,7 @@ void Application::handleGameplayInput(float frameDt, const RaycastHit& target) {
                   (m_input.isDown(keys.left) ? 1.0f : 0.0f);
     move.jump = m_input.isDown(keys.jump);
     move.descend = m_input.isDown(keys.descend);
+    move.sprint = m_input.isDown(keys.sprint);
     m_player.setInput(move);
 
     for (std::size_t i = 0; i < keys.hotbar.size(); ++i) {

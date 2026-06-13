@@ -23,7 +23,8 @@ The game opens on a main menu with a randomly seeded terrain fly-over behind it.
 |---|---|
 | WASD + mouse | Move / look |
 | Space | Jump (walk) / ascend (fly) |
-| Left Shift | Descend (fly) / crouch (on foot: slower, lower hitbox, won't walk off ledges) |
+| Left Shift | Sprint (move faster) |
+| Left Ctrl | Descend (fly) / crouch (on foot: slower, lower hitbox, won't walk off ledges) |
 | F | Toggle fly (creative only) |
 | Left / right click | Break / place block (survival: hold to mine, blocks drop) |
 | 1–9, scroll wheel | Select hotbar slot |
@@ -50,7 +51,7 @@ The flatter lowlands between those extremes are split by climate: **temperature*
 | Taiga | grass, cold | tall conical spruce |
 | Cherry grove | grass, warm & wet | broad pink cherry canopies |
 | Desert | sand all the way down | none |
-| Mountains | grass, snow caps above y≈108 | none |
+| Mountains | grass, snow caps above y≈108 | none | 
 | Ocean | sand floor under water to sea level (62) | none |
 
 Underground, two 3D noise fields intersect to carve winding **spaghetti caves** (tunnels, not blobs), and a single shared ore field clusters **coal → iron → gold → diamond** into natural veins, each gated to its own depth band so diamond cores sit deep with gold and iron shelling outward. Beaches stay sandy near sea level regardless of biome, and trees keep a margin inside their chunk so canopies never straddle a border. Full thresholds and tuning knobs are in [docs/terrain.md](docs/terrain.md).
