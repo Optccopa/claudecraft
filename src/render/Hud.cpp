@@ -62,17 +62,21 @@ void Hud::icon(float x, float y, float size, std::uint8_t tile) {
 }
 
 void Hud::text(float x, float yTop, float scale, std::string_view str) {
-    std::string buffer{str};
+    m_textBuf.assign(str);
     // stb_easy_font's "270 bytes per character" is an average over long
     // text; worst-case glyphs run far past it and short labels don't
-    // amortize, which silently truncates the last character's quads.
-    std::vector<char> quads(buffer.size() * 1000 + 64);
+    // amortize, which silently truncates the last character's quads — so keep
+    // the generous bound, but in a member buffer that only grows.
+    const std::size_t needed = m_textBuf.size() * 1000 + 64;
+    if (m_quadScratch.size() < needed) {
+        m_quadScratch.resize(needed);
+    }
     const int quadCount =
-        stb_easy_font_print(0.0f, 0.0f, buffer.data(), nullptr, quads.data(),
-                            static_cast<int>(quads.size()));
+        stb_easy_font_print(0.0f, 0.0f, m_textBuf.data(), nullptr, m_quadScratch.data(),
+                            static_cast<int>(m_quadScratch.size()));
 
     // The font is authored y-down; flip into our y-up space around yTop.
-    const auto* verts = reinterpret_cast<const EasyFontVertex*>(quads.data());
+    const auto* verts = reinterpret_cast<const EasyFontVertex*>(m_quadScratch.data());
     for (int q = 0; q < quadCount; ++q) {
         Vertex out[4];
         for (int i = 0; i < 4; ++i) {

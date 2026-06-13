@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -56,6 +57,9 @@ private:
     gl::VertexArray m_vao;
     gl::Buffer m_vbo;
     std::vector<Vertex> m_scratch;
+    // Reused across text() calls so each label isn't a fresh malloc+free.
+    std::string m_textBuf;
+    std::vector<char> m_quadScratch;
 };
 
 } // namespace cc
