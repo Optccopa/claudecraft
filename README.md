@@ -2,7 +2,7 @@
 
 ![Title Screen](images/title_screen.png)
 
-A Minecraft-style voxel game in modern C++20. OpenGL 3.3 core via GLFW + GLAD, GLM math, stb_image textures. No engine, no CMake — the build is two `cl.exe` invocations driven by `.vscode/tasks.json`.
+A Minecraft-style voxel game in modern C++20 — infinite streamed terrain, day/night, caves, ores, biomes, survival/creative modes, and full Minecraft resource-pack support. OpenGL 3.3 core via GLFW + GLAD, GLM math, stb_image. No engine, no CMake — the build is two `cl.exe` invocations driven by `.vscode/tasks.json`.
 
 ## Setup
 
@@ -11,13 +11,13 @@ A Minecraft-style voxel game in modern C++20. OpenGL 3.3 core via GLFW + GLAD, G
 3. Build: `Ctrl+Shift+B` (debug) or run the `build (release)` task.
 4. Run/debug: `F5` (builds first, launches under the MSVC debugger).
 
-Output lands in `build/debug/claudecraft.exe` / `build/release/claudecraft.exe`. The exe must run with the project root as working directory (it loads `shaders/`); `launch.json` already sets that.
-
-If your MSVC version differs, update `compilerPath` in `.vscode/c_cpp_properties.json` — the build tasks don't care, they use whatever `cl` is on `PATH`.
+Output lands in `build/debug/claudecraft.exe` / `build/release/claudecraft.exe`. Run with the project root as working directory (it loads `shaders/` from there); `launch.json` already sets that. If your MSVC version differs, update `compilerPath` in `.vscode/c_cpp_properties.json` — the build tasks don't care, they use whatever `cl` is on `PATH`.
 
 ![Create World Screen](images/world_creation.png)
 
-## Controls
+## Playing
+
+The game opens on a main menu with a randomly seeded terrain fly-over behind it. PLAY leads to the worlds screen: type a name, pick **creative** or **survival**, and CREATE (random seed) — or reload an existing world. Each world keeps a persistent day/night cycle, your inventory, and its game mode.
 
 | Input | Action |
 |---|---|
@@ -33,57 +33,56 @@ If your MSVC version differs, update `compilerPath` in `.vscode/c_cpp_properties
 | G | Toggle chunk-border wireframe |
 | Esc | Close inventory / pause menu (resume / settings / quit to menu) |
 
-The game opens on a main menu with a randomly seeded terrain fly-over in the background. Play leads to the worlds screen: type a name, pick creative or survival, and CREATE (random seed) — or load an existing world from the list. Worlds have a persistent day/night cycle, inventory, caves with ores, and biomes (plains, forest, desert, mountains, ocean). Pause quits back to the menu. The window title shows the world, FPS, position, and loaded/drawn chunk counts.
+Settings (main menu or pause) spans four tabs, all applied live: **VIDEO** (render distance, FOV, vsync, fullscreen, smooth lighting), **CONTROLS** (mouse sensitivity, invert Y, and every key — movement *and* the nine hotbar slots — rebindable in two columns), **PACKS** (the resource-pack stack, below) and **CHEATS** (player-speed multiplier, block reach).
 
-Settings (from the main menu or pause) has VIDEO (render distance, FOV, vsync, fullscreen), CONTROLS (mouse sensitivity, invert Y, rebindable movement + hotbar keys in two columns), PACKS (enable/disable/reorder Minecraft resource packs at runtime) and CHEATS (player speed multiplier, block reach) categories; values apply immediately and persist to `settings.txt`.
+## Biomes & world generation
 
-## Architecture
+![Biomes](images/biome_generation.png)
+
+Everything in a world is a pure function of its seed, so the same seed always rebuilds the same world no matter what order chunks load in. Terrain starts from a single **continental** noise field that drives both extremes at once — high pushes up into **mountains**, low sinks into **ocean** basins — which means coastlines naturally pass through plains-height ground and mountains can never sit inside the sea.
+
+The flatter lowlands between those extremes are split by climate: **temperature** carves out cold **taiga** and warm, wet **cherry grove**, and what's left splits by **moisture** into dry **desert**, lush **forest**, or default **plains**.
+
+| Biome | Look | Trees |
+|---|---|---|
+| Plains | grass, gentle hills | sparse oak |
+| Forest | grass | dense oak |
+| Taiga | grass, cold | tall conical spruce |
+| Cherry grove | grass, warm & wet | broad pink cherry canopies |
+| Desert | sand all the way down | none |
+| Mountains | grass, snow caps above y≈108 | none |
+| Ocean | sand floor under water to sea level (62) | none |
+
+Underground, two 3D noise fields intersect to carve winding **spaghetti caves** (tunnels, not blobs), and a single shared ore field clusters **coal → iron → gold → diamond** into natural veins, each gated to its own depth band so diamond cores sit deep with gold and iron shelling outward. Beaches stay sandy near sea level regardless of biome, and trees keep a margin inside their chunk so canopies never straddle a border. Full thresholds and tuning knobs are in [docs/terrain.md](docs/terrain.md).
+
+## Saving
+
+All writable data lives in one per-user folder: **`%LOCALAPPDATA%/.claudecraft/`**, holding `saves/`, `settings.txt` and `texture_packs/`. (If you ran an older build that wrote into the game folder, that data is moved into place automatically on first launch.) Only `shaders/` is still read from the install directory.
+
+Each world is a directory `saves/<name>/`, and worlds are **sparse** — only chunks you've actually changed get written, as `c_<x>_<z>.bin` (a small magic+version header followed by run-length-encoded blocks), so a freshly explored but untouched world costs almost nothing on disk. A `world.meta` stores the seed, time of day and game mode; `player.dat` stores your inventory. Saving happens when a chunk streams out of range, on quit-to-menu, and on exit. Corrupt or version-mismatched chunk files are ignored and simply regenerate from the seed, so a bad write never bricks a world. Format spec: [docs/save-format.md](docs/save-format.md).
+
+## Texture packs
+
+claudecraft loads **real Minecraft resource packs**. Drop any vanilla pack — `.zip` or an extracted folder — into `%LOCALAPPDATA%/.claudecraft/texture_packs/`, then open **Settings → PACKS** to enable, disable and reorder them at runtime (no restart).
+
+![Resource Packs](images/texture_packs.png)
+
+Packs **stack** exactly like Minecraft's: for each block, the texture comes from the highest enabled pack that provides it, so you can layer a small override on top of a base pack. Block ids match Minecraft exactly (`grass_block`, `oak_log`, `diamond_ore`, …), so a pack's textures resolve by name with no remapping. The loader handles the Minecraft details too: greyscale grass/foliage/water get tinted, animated textures (like water) use their first frame, and HD packs are downscaled to the atlas. Anything no enabled pack supplies shows up **magenta** so a missing texture is obvious. With no packs enabled it falls back to a bundled `textures/atlas.png`, then to a built-in procedural atlas — so the game always runs, even with no art assets at all.
+
+## Under the hood
+
+The heavy lifting is a streaming pipeline: the main thread owns all OpenGL, while a worker pool generates terrain and builds **greedy-meshed** chunk geometry (with ambient occlusion and a separate translucent water pass) from immutable snapshots, so workers share no mutable state. Chunks stream in nearest-first and evict — saving if dirty — past the render distance.
 
 ```
 src/
-  Main.cpp            entry point; catches and logs init failures
-  app/                Window (GLFW+GLAD RAII), Application (composition root, game loop)
-  core/               ThreadPool (jthread), ConcurrentQueue, logging
-  gl/                 move-only RAII wrappers (Buffer/VertexArray/Texture2D),
-                      ShaderProgram (compile/link checked), KHR_debug hookup
-  input/              Input (polled view over GLFW callbacks)
-  player/             Camera (matrices), Player (swept-AABB physics, fly/walk)
-  render/             Renderer (chunk GPU meshes, frustum culling, water pass,
-                      block highlight), TextureAtlas, Frustum, Hud (immediate-
-                      mode overlay: rects/icons + stb_easy_font text, one
-                      batched draw per frame)
-  world/              Chunk (16x16x256, contiguous), World (streaming pipeline),
-                      ChunkMesher (greedy meshing + AO), TerrainGenerator (Perlin
-                      fBm, biomes, caves, ores, trees), WorldSave (RLE, versioned),
-                      WorldList (named worlds + meta), Raycast (DDA)
-shaders/              GLSL 330: chunk, hud, lines
-third_party/          vendored GLFW 3.4 (+ glfw3.lib), GLAD, GLM 1.0.1, stb_image
+  app/      Window (GLFW+GLAD RAII), Application (composition root, game loop)
+  core/     ThreadPool, ConcurrentQueue, logging, Paths (data dir), SystemStats
+  gl/       move-only RAII handles, shader compile/link checking, KHR_debug
+  input/    polled view over GLFW callbacks
+  player/   Camera, Player (swept-AABB physics, fly/walk/crouch)
+  render/   Renderer, TextureAtlas (+ resource packs), Frustum, Hud, Sky
+  world/    Chunk, World (streaming), ChunkMesher, TerrainGenerator, LightEngine,
+            WorldSave/WorldList, Drops, Raycast
 ```
 
-### Threading model
-
-All OpenGL stays on the main thread. Each frame, `World::update`:
-
-1. integrates finished chunks from the generation queue,
-2. saves + evicts chunks outside `renderDistance + 2`,
-3. submits missing chunks (nearest first) to the worker pool — workers load the chunk from disk or generate it,
-4. submits mesh jobs for dirty chunks whose 8 lateral neighbours are loaded; the job input is an immutable 18x18x256 snapshot copied on the main thread, so workers share nothing,
-5. drains finished meshes and returns them as `WorldUpdate` for the renderer to upload.
-
-Stale results are handled with a per-chunk mesh revision: every edit bumps it, every mesh job carries the revision it was built from, and mismatched results are dropped (the mismatch also keeps the chunk scheduled for a rebuild). `World`'s destructor waits for its in-flight jobs before the members they reference die.
-
-### Meshing
-
-Greedy meshing per face direction: each slice builds a mask of visible faces (face culled when the neighbour is opaque), then merges equal rectangles. Equality includes the 4-corner ambient-occlusion values, so merged quads keep correct shading; quads are split along the brighter diagonal to avoid AO anisotropy. Texcoords are emitted in block units and wrapped with `fract()` in the fragment shader — that's what lets one greedy quad tile a single atlas cell across many blocks (nearest filtering, no mips, no bleed). Water goes into a second translucent mesh, drawn back-to-front with depth writes off.
-
-### World persistence
-
-All writable data lives under `%LOCALAPPDATA%/.claudecraft/` (`saves/`, `settings.txt`, `texture_packs/`); older installs' working-dir data is migrated there on first launch. Each world lives in `saves/<name>/` with a `world.meta` (format version + seed). Only modified chunks are written: `c_<x>_<z>.bin`, an 8-byte magic+version header followed by RLE runs. Corrupt or version-mismatched files are ignored and the chunk regenerates. Saving happens on eviction, on quit-to-menu, and on exit.
-
-### Textures
-
-`render/TextureAtlas` loads, in order: a **Minecraft resource pack stack** (drop any vanilla `.zip` packs into `texture_packs/`, then enable/order them in Settings → PACKS — each block texture comes from the highest pack that has it, with grass/foliage/water tinted and animated textures' first frame taken; anything no pack supplies shows magenta), then a prebuilt `textures/atlas.png`, then a deterministic procedural atlas so the repo needs no binary assets. Block ids match Minecraft exactly (`grass_block`, `oak_log`, …). See [docs/rendering.md](docs/rendering.md).
-
-## Further reading
-
-Subsystem docs live in [docs/](docs/README.md): architecture, build system, threading model, meshing, rendering, and the save format.
+Per-subsystem docs — architecture, threading, meshing, lighting, terrain, rendering, save format — live in [docs/](docs/README.md).
