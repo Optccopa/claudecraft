@@ -79,8 +79,9 @@ BlockType World::blockAt(const glm::ivec3& p) const noexcept {
 
 // Edits within one block of a border change the neighbour's face culling,
 // AO and light sampling, so its mesh must rebuild too (diagonals included).
-void World::bumpMeshRevisionsAround(Chunk& chunk, int lx, int lz) noexcept {
+void World::bumpMeshRevisionsAround(Chunk& chunk, int lx, int lz) {
     chunk.bumpMeshRevision();
+    markMeshDirty(chunk.coord());
     const int dxLo = (lx == 0) ? -1 : 0;
     const int dxHi = (lx == Chunk::SizeX - 1) ? 1 : 0;
     const int dzLo = (lz == 0) ? -1 : 0;
@@ -90,8 +91,10 @@ void World::bumpMeshRevisionsAround(Chunk& chunk, int lx, int lz) noexcept {
             if (dx == 0 && dz == 0) {
                 continue;
             }
-            if (Chunk* neighbor = chunkAt({chunk.coord().x + dx, chunk.coord().z + dz})) {
+            const ChunkCoord nc{chunk.coord().x + dx, chunk.coord().z + dz};
+            if (Chunk* neighbor = chunkAt(nc)) {
                 neighbor->bumpMeshRevision();
+                markMeshDirty(nc);
             }
         }
     }
@@ -159,6 +162,7 @@ void World::setSmoothLighting(bool smooth) noexcept {
     m_smoothLighting = smooth;
     for (const auto& [coord, chunk] : m_chunks) {
         chunk->bumpMeshRevision();
+        markMeshDirty(coord);
     }
 }
 
@@ -223,11 +227,22 @@ void World::integrateGenerated(WorldUpdate& out, ChunkCoord center) {
             continue;
         }
         m_chunks.emplace(result.coord, std::move(result.chunk));
+        markMeshDirty(result.coord);
         m_lightEngine.onChunkLoaded(*this, result.coord);
     }
 }
 
 void World::scheduleGeneration(ChunkCoord center) {
+    // The radius rescan is ~450 cells of hashing per frame. Once the player
+    // chunk stops moving it only pays off while there is still room in the gen
+    // pipeline AND holes left to fill; skip it otherwise.
+    const bool saturated = static_cast<int>(m_pendingGen.size()) >= kMaxGenSubmitsPerFrame;
+    if (m_genCenterValid && center == m_lastGenCenter && (m_allLoaded || saturated)) {
+        return;
+    }
+    m_lastGenCenter = center;
+    m_genCenterValid = true;
+
     std::vector<ChunkCoord> missing;
     for (int dx = -m_renderDistance; dx <= m_renderDistance; ++dx) {
         for (int dz = -m_renderDistance; dz <= m_renderDistance; ++dz) {
@@ -240,6 +255,7 @@ void World::scheduleGeneration(ChunkCoord center) {
             }
         }
     }
+    m_allLoaded = missing.empty();
     std::sort(missing.begin(), missing.end(), [center](ChunkCoord a, ChunkCoord b) {
         return distanceSq(a, center) < distanceSq(b, center);
     });
@@ -261,10 +277,16 @@ void World::scheduleGeneration(ChunkCoord center) {
 
 void World::scheduleMeshing(ChunkCoord center) {
     std::vector<Chunk*> dirty;
-    for (const auto& [coord, chunk] : m_chunks) {
-        if (chunk->scheduledRevision() != chunk->meshRevision() && neighborsLoaded(coord)) {
-            dirty.push_back(chunk.get());
+    for (auto it = m_dirtyMesh.begin(); it != m_dirtyMesh.end();) {
+        Chunk* chunk = chunkAt(*it);
+        if (chunk == nullptr || chunk->scheduledRevision() == chunk->meshRevision()) {
+            it = m_dirtyMesh.erase(it); // unloaded or already up to date
+            continue;
         }
+        if (neighborsLoaded(*it)) {
+            dirty.push_back(chunk);
+        }
+        ++it; // keep until meshed; a missing neighbour may load next frame
     }
     std::sort(dirty.begin(), dirty.end(), [center](const Chunk* a, const Chunk* b) {
         return distanceSq(a->coord(), center) < distanceSq(b->coord(), center);
@@ -303,6 +325,8 @@ void World::unloadDistant(WorldUpdate& out, ChunkCoord center) {
             if (it->second->isModified()) {
                 m_save.save(*it->second);
             }
+            m_dirtyMesh.erase(it->first);
+            m_allLoaded = false; // a hole opened; let the gen scan run again
             out.removed.push_back(it->first);
             it = m_chunks.erase(it);
         } else {

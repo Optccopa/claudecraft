@@ -65,7 +65,14 @@ public:
 
     [[nodiscard]] bool isChunkLoadedAt(const glm::vec3& worldPos) const noexcept;
     // Streaming adapts on the next update(): new ring loads, distant unloads.
-    void setRenderDistance(int distance) noexcept { m_renderDistance = distance; }
+    void setRenderDistance(int distance) noexcept {
+        m_renderDistance = distance;
+        m_allLoaded = false; // a larger ring needs a fresh generation scan
+    }
+
+    // Queues a chunk for remeshing. Public so the light engine can report the
+    // chunks its relight pass touched without re-scanning every loaded chunk.
+    void markMeshDirty(ChunkCoord coord) { m_dirtyMesh.insert(coord); }
     // Remeshes every loaded chunk when the value actually changes.
     void setSmoothLighting(bool smooth) noexcept;
     [[nodiscard]] std::size_t loadedChunkCount() const noexcept { return m_chunks.size(); }
@@ -94,7 +101,7 @@ private:
     void unloadDistant(WorldUpdate& out, ChunkCoord center);
     void drainMeshResults(WorldUpdate& out);
 
-    void bumpMeshRevisionsAround(Chunk& chunk, int lx, int lz) noexcept;
+    void bumpMeshRevisionsAround(Chunk& chunk, int lx, int lz);
     [[nodiscard]] bool neighborsLoaded(ChunkCoord coord) const noexcept;
     [[nodiscard]] std::shared_ptr<const MeshInput> makeMeshInput(const Chunk& center) const;
 
@@ -107,8 +114,19 @@ private:
     int m_renderDistance;
     bool m_smoothLighting = true;
 
+    // Generation-scan throttle: when the player chunk is unchanged and either
+    // the ring is fully loaded or the gen pipeline is saturated, the radius
+    // rescan is pure waste, so skip it.
+    ChunkCoord m_lastGenCenter{};
+    bool m_genCenterValid = false;
+    bool m_allLoaded = false;
+
     std::unordered_map<ChunkCoord, std::unique_ptr<Chunk>, ChunkCoordHash> m_chunks;
     std::unordered_set<ChunkCoord, ChunkCoordHash> m_pendingGen;
+    // Chunks awaiting a mesh build, so scheduleMeshing iterates only these
+    // instead of every loaded chunk. An entry lingers (e.g. neighbours not yet
+    // loaded) until it is successfully scheduled or its chunk unloads.
+    std::unordered_set<ChunkCoord, ChunkCoordHash> m_dirtyMesh;
     ConcurrentQueue<GenResult> m_genResults;
     ConcurrentQueue<MeshJobResult> m_meshResults;
 

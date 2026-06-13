@@ -60,6 +60,19 @@ Rules:
 This makes "rebuild incrementally on block change" safe under any
 interleaving of edits, scheduling, and job completion, with no locks.
 
+Rule 1's candidates come from a dirty set (`World::m_dirtyMesh`), not a scan
+of every loaded chunk. Each revision bump (`bumpMeshRevisionsAround`,
+`setSmoothLighting`, the light engine's `flushTouched`) and each newly loaded
+chunk inserts its coord; `scheduleMeshing` walks only the set, dropping
+entries whose chunk unloaded or is already up to date and leaving the rest
+(e.g. neighbours not yet loaded) for a later frame. At steady state the set
+is empty, so the pass is free. Any new revision-bump site must call
+`World::markMeshDirty` or its chunk will never remesh.
+
+`scheduleGeneration`'s radius rescan is likewise skipped when the player chunk
+is unchanged and either the ring is fully loaded or the gen pipeline is
+saturated — see `m_lastGenCenter`/`m_allLoaded`.
+
 ## Shutdown ordering
 
 The pool member is declared **before** the worlds in `Application`, so worlds

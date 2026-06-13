@@ -190,8 +190,10 @@ void LightEngine::flushTouched(World& world) {
     for (const ChunkCoord coord : m_touched) {
         for (int dx = -1; dx <= 1; ++dx) {
             for (int dz = -1; dz <= 1; ++dz) {
-                if (Chunk* chunk = world.chunkAt({coord.x + dx, coord.z + dz})) {
+                const ChunkCoord nc{coord.x + dx, coord.z + dz};
+                if (Chunk* chunk = world.chunkAt(nc)) {
                     chunk->bumpMeshRevision();
+                    world.markMeshDirty(nc);
                 }
             }
         }
