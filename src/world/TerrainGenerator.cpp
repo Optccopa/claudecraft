@@ -3,6 +3,7 @@
 #include "world/Chunk.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 namespace cc {
@@ -214,6 +215,12 @@ void TerrainGenerator::carveAndSeed(BlockType* column, int wx, int wz,
 std::unique_ptr<Chunk> TerrainGenerator::generate(ChunkCoord coord) const {
     auto chunk = std::make_unique<Chunk>(coord);
 
+    // The column pass already derives biome + pre-cave height per (lx,lz); cache
+    // both so the tree pass reads them instead of re-running the noise stack
+    // (biomeAt + surfaceHeight = ~7 fbm evals) for every candidate.
+    std::array<int, Chunk::SizeX * Chunk::SizeZ> heightCache{};
+    std::array<Biome, Chunk::SizeX * Chunk::SizeZ> biomeCache{};
+
     for (int lx = 0; lx < Chunk::SizeX; ++lx) {
         for (int lz = 0; lz < Chunk::SizeZ; ++lz) {
             const int wx = coord.x * Chunk::SizeX + lx;
@@ -221,6 +228,9 @@ std::unique_ptr<Chunk> TerrainGenerator::generate(ChunkCoord coord) const {
             const BiomeFactors factors = factorsAt(wx, wz);
             const Biome biome = classify(factors);
             const int h = heightFor(factors, wx, wz);
+            const std::size_t ci = static_cast<std::size_t>(lx * Chunk::SizeZ + lz);
+            heightCache[ci] = h;
+            biomeCache[ci] = biome;
 
             BlockType top = BlockType::Grass;
             if (biome == Biome::Desert || h <= SeaLevel + 1) {
@@ -253,7 +263,8 @@ std::unique_ptr<Chunk> TerrainGenerator::generate(ChunkCoord coord) const {
         for (int lz = 2; lz < Chunk::SizeZ - 2; ++lz) {
             const int wx = coord.x * Chunk::SizeX + lx;
             const int wz = coord.z * Chunk::SizeZ + lz;
-            const Biome biome = biomeAt(wx, wz);
+            const std::size_t ci = static_cast<std::size_t>(lx * Chunk::SizeZ + lz);
+            const Biome biome = biomeCache[ci];
             std::uint32_t density = 0;
             switch (biome) {
             case Biome::Plains: density = 8; break;
@@ -271,7 +282,7 @@ std::unique_ptr<Chunk> TerrainGenerator::generate(ChunkCoord coord) const {
             if (density == 0 || hash % 1000u >= density) {
                 continue;
             }
-            const int h = surfaceHeight(wx, wz);
+            const int h = heightCache[ci];
             if (chunk->at(lx, h, lz) == BlockType::Grass) {
                 plantTree(*chunk, lx, h, lz, hash, biome);
             }
