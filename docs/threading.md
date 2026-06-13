@@ -10,7 +10,9 @@ exists to make that cheap and race-free.
 main thread                         worker pool (jthread × clamp(hw-2, 2..8))
 ───────────                         ──────────────────────────────────────────
 World::update each frame:
-  drain genResults  ◄──────────────  gen job: WorldSave::tryLoad || generate
+  drain genResults (≤4/frame —  ◄──  gen job: WorldSave::tryLoad || generate
+    integration does main-thread
+    light merging per chunk)
   unload distant (save modified)
   submit gen jobs (≤16/frame,  ────►
     nearest-first)

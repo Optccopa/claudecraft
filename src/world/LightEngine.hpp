@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <deque>
+#include <unordered_set>
 
 namespace cc {
 
@@ -46,10 +47,30 @@ private:
 
     enum class Channel : std::uint8_t { Sky, Block };
 
+    // One-entry chunk cache: BFS neighbours are almost always in the same
+    // chunk as the popped cell, so this turns a hash lookup per cell access
+    // into a pointer compare (the original per-cell lookups froze the frame
+    // whenever several chunks integrated at once).
+    struct ChunkRef {
+        ChunkCoord coord{INT32_MIN, INT32_MIN};
+        Chunk* chunk = nullptr;
+    };
+
+    [[nodiscard]] Chunk* cachedChunk(World& world, const glm::ivec3& pos) noexcept;
+    [[nodiscard]] std::uint8_t readLight(World& world, const glm::ivec3& pos) noexcept;
+    [[nodiscard]] BlockType readBlock(World& world, const glm::ivec3& pos) noexcept;
+    bool writeLight(World& world, const glm::ivec3& pos, std::uint8_t packed) noexcept;
+
     void propagate(World& world, Channel channel);
     void removeLight(World& world, Channel channel, const glm::ivec3& pos,
                      std::uint8_t oldLevel);
     void seedNeighbours(World& world, Channel channel, const glm::ivec3& pos);
+    // Mesh revisions bump once per touched chunk after a relight pass, not
+    // per BFS write.
+    void flushTouched(World& world);
+
+    ChunkRef m_cache;
+    std::unordered_set<ChunkCoord, ChunkCoordHash> m_touched;
 
     // Scratch queues reused across calls to avoid per-edit allocation.
     std::deque<Node> m_queue;

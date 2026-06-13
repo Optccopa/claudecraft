@@ -12,6 +12,9 @@ namespace {
 
 constexpr int kMaxGenSubmitsPerFrame = 16;
 constexpr int kMaxMeshSubmitsPerFrame = 16;
+// Integration runs main-thread work per chunk (light seam merge + BFS), so
+// it is the one pipeline stage that must be paced to protect frame time.
+constexpr int kMaxIntegrationsPerFrame = 4;
 constexpr int kUnloadSlack = 2; // hysteresis so chunks don't thrash at the edge
 
 [[nodiscard]] int distanceSq(ChunkCoord a, ChunkCoord b) noexcept {
@@ -128,20 +131,6 @@ std::uint8_t World::lightPackedAt(const glm::ivec3& p) const noexcept {
     return chunk->lightAt(p.x & 15, p.y, p.z & 15);
 }
 
-bool World::setLightPacked(const glm::ivec3& p, std::uint8_t packed) noexcept {
-    if (p.y < 0 || p.y >= Chunk::SizeY) {
-        return false;
-    }
-    Chunk* chunk = chunkAt(chunkCoordOf(p.x, p.z));
-    if (chunk == nullptr) {
-        return false;
-    }
-    const int lx = p.x & 15;
-    const int lz = p.z & 15;
-    chunk->setLight(lx, p.y, lz, packed);
-    bumpMeshRevisionsAround(*chunk, lx, lz);
-    return true;
-}
 
 bool World::isChunkLoadedAt(const glm::vec3& p) const noexcept {
     return chunkAt(chunkCoordOf(static_cast<int>(std::floor(p.x)),
@@ -214,7 +203,7 @@ WorldUpdate World::update(const glm::vec3& playerPos) {
 void World::integrateGenerated(WorldUpdate& out, ChunkCoord center) {
     (void)out;
     GenResult result;
-    while (m_genResults.tryPop(result)) {
+    for (int n = 0; n < kMaxIntegrationsPerFrame && m_genResults.tryPop(result); ++n) {
         m_pendingGen.erase(result.coord);
         // Player may have moved away while the job was in flight.
         if (distanceSq(result.coord, center) >

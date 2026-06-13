@@ -53,10 +53,21 @@ The frontier scan exists for cost: on open terrain whole columns are already
 uniformly lit, so only cells bordering darker space (cave mouths, overhangs)
 seed the BFS instead of all ~48k lit cells.
 
-`World::setLightPacked` bumps mesh revisions of the owning chunk and any
-border-adjacent neighbours, so relighting automatically queues remeshes
-through the existing revision protocol. BFS into an unloaded chunk is simply
-dropped — the seam merge repairs it when that chunk loads.
+The main-thread passes are budgeted — per-cell chunk-map lookups here once
+froze the frame whenever several chunks integrated at once:
+
+- All BFS reads/writes go through a one-entry chunk-pointer cache
+  (`LightEngine::cachedChunk`), invalidated at the start of each pass
+  because chunks may have unloaded since the last one.
+- The seam scan accesses the two chunks of each face directly.
+- Mesh revisions bump once per touched chunk (plus neighbours) in
+  `flushTouched` at the end of a pass, not per BFS write.
+- `World::integrateGenerated` paces itself (`kMaxIntegrationsPerFrame`),
+  since integration is the one pipeline stage doing main-thread work per
+  chunk.
+
+BFS into an unloaded chunk is simply dropped — the seam merge repairs it
+when that chunk loads.
 
 ## Light is derived data
 

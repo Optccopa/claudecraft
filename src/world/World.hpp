@@ -55,10 +55,13 @@ public:
     bool setBlock(const glm::ivec3& worldPos, BlockType type);
 
     // Packed light (sky | block << 4). Above the world reads as full sky;
-    // below it and in unloaded chunks as darkness. Writes bump the mesh
-    // revisions of every chunk whose mesh samples the cell.
+    // below it and in unloaded chunks as darkness.
     [[nodiscard]] std::uint8_t lightPackedAt(const glm::ivec3& worldPos) const noexcept;
-    bool setLightPacked(const glm::ivec3& worldPos, std::uint8_t packed) noexcept;
+
+    // Non-owning chunk access for the light engine's hot loops, which cache
+    // the pointer per chunk instead of paying a hash lookup per cell.
+    [[nodiscard]] Chunk* chunkAt(ChunkCoord coord) noexcept;
+    [[nodiscard]] const Chunk* chunkAt(ChunkCoord coord) const noexcept;
 
     [[nodiscard]] bool isChunkLoadedAt(const glm::vec3& worldPos) const noexcept;
     // Streaming adapts on the next update(): new ring loads, distant unloads.
@@ -91,8 +94,6 @@ private:
     void unloadDistant(WorldUpdate& out, ChunkCoord center);
     void drainMeshResults(WorldUpdate& out);
 
-    [[nodiscard]] Chunk* chunkAt(ChunkCoord coord) noexcept;
-    [[nodiscard]] const Chunk* chunkAt(ChunkCoord coord) const noexcept;
     void bumpMeshRevisionsAround(Chunk& chunk, int lx, int lz) noexcept;
     [[nodiscard]] bool neighborsLoaded(ChunkCoord coord) const noexcept;
     [[nodiscard]] std::shared_ptr<const MeshInput> makeMeshInput(const Chunk& center) const;

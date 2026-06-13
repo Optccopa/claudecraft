@@ -143,19 +143,75 @@ void LightEngine::initializeChunkLight(Chunk& chunk) noexcept {
     localPropagate(chunk, blockQueue, false);
 }
 
+Chunk* LightEngine::cachedChunk(World& world, const glm::ivec3& pos) noexcept {
+    const ChunkCoord coord = World::chunkCoordOf(pos.x, pos.z);
+    if (!(coord == m_cache.coord)) {
+        m_cache.coord = coord;
+        m_cache.chunk = world.chunkAt(coord);
+    }
+    return m_cache.chunk;
+}
+
+std::uint8_t LightEngine::readLight(World& world, const glm::ivec3& pos) noexcept {
+    if (pos.y >= Chunk::SizeY) {
+        return Chunk::packLight(MaxLevel, 0);
+    }
+    if (pos.y < 0) {
+        return 0;
+    }
+    const Chunk* chunk = cachedChunk(world, pos);
+    return chunk != nullptr ? chunk->lightAt(pos.x & 15, pos.y, pos.z & 15) : 0;
+}
+
+BlockType LightEngine::readBlock(World& world, const glm::ivec3& pos) noexcept {
+    if (pos.y < 0 || pos.y >= Chunk::SizeY) {
+        return BlockType::Air;
+    }
+    const Chunk* chunk = cachedChunk(world, pos);
+    return chunk != nullptr ? chunk->at(pos.x & 15, pos.y, pos.z & 15) : BlockType::Air;
+}
+
+bool LightEngine::writeLight(World& world, const glm::ivec3& pos, std::uint8_t packed) noexcept {
+    if (pos.y < 0 || pos.y >= Chunk::SizeY) {
+        return false;
+    }
+    Chunk* chunk = cachedChunk(world, pos);
+    if (chunk == nullptr) {
+        return false;
+    }
+    chunk->setLight(pos.x & 15, pos.y, pos.z & 15, packed);
+    m_touched.insert(m_cache.coord);
+    return true;
+}
+
+// Conservatively remesh every touched chunk and its neighbours once per
+// relight pass; the revision protocol dedupes repeated bumps for free.
+void LightEngine::flushTouched(World& world) {
+    for (const ChunkCoord coord : m_touched) {
+        for (int dx = -1; dx <= 1; ++dx) {
+            for (int dz = -1; dz <= 1; ++dz) {
+                if (Chunk* chunk = world.chunkAt({coord.x + dx, coord.z + dz})) {
+                    chunk->bumpMeshRevision();
+                }
+            }
+        }
+    }
+    m_touched.clear();
+}
+
 void LightEngine::propagate(World& world, Channel channel) {
     const bool sky = channel == Channel::Sky;
     while (!m_queue.empty()) {
         const Node node = m_queue.front();
         m_queue.pop_front();
         // Re-read: removal may have darkened this cell after it was queued.
-        const std::uint8_t level = channelLevel(world.lightPackedAt(node.pos), sky);
+        const std::uint8_t level = channelLevel(readLight(world, node.pos), sky);
         if (level <= 1) {
             continue;
         }
         for (const glm::ivec3& dir : kDirections) {
             const glm::ivec3 t = node.pos + dir;
-            const BlockType target = world.blockAt(t);
+            const BlockType target = readBlock(world, t);
             if (stopsLight(target)) {
                 continue;
             }
@@ -164,11 +220,11 @@ void LightEngine::propagate(World& world, Channel channel) {
                 continue;
             }
             const auto candidate = static_cast<std::uint8_t>(level - cost);
-            const std::uint8_t packed = world.lightPackedAt(t);
+            const std::uint8_t packed = readLight(world, t);
             if (candidate <= channelLevel(packed, sky)) {
                 continue;
             }
-            if (!world.setLightPacked(t, withChannel(packed, sky, candidate))) {
+            if (!writeLight(world, t, withChannel(packed, sky, candidate))) {
                 continue; // unloaded chunk; seam merge relights it on load
             }
             m_queue.push_back(Node{t, candidate});
@@ -185,18 +241,18 @@ void LightEngine::removeLight(World& world, Channel channel, const glm::ivec3& p
         m_removalQueue.pop_front();
         for (const glm::ivec3& dir : kDirections) {
             const glm::ivec3 t = node.pos + dir;
-            const std::uint8_t packed = world.lightPackedAt(t);
+            const std::uint8_t packed = readLight(world, t);
             const std::uint8_t neighbour = channelLevel(packed, sky);
             if (neighbour == 0) {
                 continue;
             }
-            const BlockType target = world.blockAt(t);
+            const BlockType target = readBlock(world, t);
             const std::uint8_t cost = stepCost(sky, dir, node.level, target);
             // Anything at or below what we could have fed it was (possibly)
             // ours: darken and recurse. Anything brighter survives and
             // becomes a re-flood source.
             if (cost < node.level && neighbour <= node.level - cost) {
-                if (world.setLightPacked(t, withChannel(packed, sky, 0))) {
+                if (writeLight(world, t, withChannel(packed, sky, 0))) {
                     m_removalQueue.push_back(Node{t, neighbour});
                 }
             } else {
@@ -210,7 +266,7 @@ void LightEngine::seedNeighbours(World& world, Channel channel, const glm::ivec3
     const bool sky = channel == Channel::Sky;
     for (const glm::ivec3& dir : kDirections) {
         const glm::ivec3 t = pos + dir;
-        const std::uint8_t level = channelLevel(world.lightPackedAt(t), sky);
+        const std::uint8_t level = channelLevel(readLight(world, t), sky);
         if (level > 1) {
             m_queue.push_back(Node{t, level});
         }
@@ -218,6 +274,11 @@ void LightEngine::seedNeighbours(World& world, Channel channel, const glm::ivec3
 }
 
 void LightEngine::onChunkLoaded(World& world, ChunkCoord coord) {
+    m_cache = ChunkRef{}; // chunks may have unloaded since the last pass
+    Chunk* center = world.chunkAt(coord);
+    if (center == nullptr) {
+        return;
+    }
     const glm::ivec3 base{coord.x * Chunk::SizeX, 0, coord.z * Chunk::SizeZ};
     constexpr std::array<glm::ivec3, 4> kLateral{
         glm::ivec3{1, 0, 0}, glm::ivec3{-1, 0, 0}, glm::ivec3{0, 0, 1}, glm::ivec3{0, 0, -1}};
@@ -225,44 +286,48 @@ void LightEngine::onChunkLoaded(World& world, ChunkCoord coord) {
     for (const bool sky : {true, false}) {
         const Channel channel = sky ? Channel::Sky : Channel::Block;
         for (const glm::ivec3& dir : kLateral) {
-            // Cells just inside this chunk's face and just outside it.
+            Chunk* neighbour = world.chunkAt({coord.x + dir.x, coord.z + dir.z});
+            if (neighbour == nullptr) {
+                continue;
+            }
+            // Direct array access on the chunk pair: this scan runs 16k cells
+            // per face and per-cell map lookups here caused visible freezes.
+            const int innerX = dir.x > 0 ? Chunk::SizeX - 1 : 0;
+            const int innerZ = dir.z > 0 ? Chunk::SizeZ - 1 : 0;
             for (int i = 0; i < Chunk::SizeX; ++i) {
+                const int ix = dir.x != 0 ? innerX : i;
+                const int iz = dir.x != 0 ? i : innerZ;
+                const int ox = dir.x != 0 ? (Chunk::SizeX - 1 - innerX) : i;
+                const int oz = dir.x != 0 ? i : (Chunk::SizeZ - 1 - innerZ);
                 for (int y = 0; y < Chunk::SizeY; ++y) {
-                    glm::ivec3 inner = base + glm::ivec3{0, y, 0};
-                    if (dir.x != 0) {
-                        inner.x += dir.x > 0 ? Chunk::SizeX - 1 : 0;
-                        inner.z += i;
-                    } else {
-                        inner.z += dir.z > 0 ? Chunk::SizeZ - 1 : 0;
-                        inner.x += i;
-                    }
-                    const glm::ivec3 outer = inner + dir;
-                    const std::uint8_t a = channelLevel(world.lightPackedAt(inner), sky);
-                    const std::uint8_t b = channelLevel(world.lightPackedAt(outer), sky);
+                    const std::uint8_t a = channelLevel(center->lightAt(ix, y, iz), sky);
+                    const std::uint8_t b = channelLevel(neighbour->lightAt(ox, y, oz), sky);
                     // Only a >=2 difference can flow anywhere (min cost 1).
                     if (a >= b + 2) {
-                        m_queue.push_back(Node{inner, a});
+                        m_queue.push_back(Node{base + glm::ivec3{ix, y, iz}, a});
                     } else if (b >= a + 2) {
-                        m_queue.push_back(Node{outer, b});
+                        m_queue.push_back(Node{base + glm::ivec3{ix + dir.x, y, iz + dir.z}, b});
                     }
                 }
             }
         }
         propagate(world, channel);
     }
+    flushTouched(world);
 }
 
 void LightEngine::onBlockChanged(World& world, const glm::ivec3& pos, BlockType oldType) {
+    m_cache = ChunkRef{}; // chunks may have unloaded since the last pass
     const BlockType newType = world.blockAt(pos);
     if (newType == oldType) {
         return;
     }
-    const std::uint8_t packed = world.lightPackedAt(pos);
+    const std::uint8_t packed = readLight(world, pos);
 
     {
         const std::uint8_t oldSky = Chunk::skyLevel(packed);
         if (oldSky > 0) {
-            (void)world.setLightPacked(pos, withChannel(world.lightPackedAt(pos), true, 0));
+            (void)writeLight(world, pos, withChannel(readLight(world, pos), true, 0));
             removeLight(world, Channel::Sky, pos, oldSky);
         }
         if (!stopsLight(newType)) {
@@ -273,13 +338,12 @@ void LightEngine::onBlockChanged(World& world, const glm::ivec3& pos, BlockType 
     {
         const std::uint8_t oldBlock = Chunk::blockLevel(packed);
         if (oldBlock > 0) {
-            (void)world.setLightPacked(pos, withChannel(world.lightPackedAt(pos), false, 0));
+            (void)writeLight(world, pos, withChannel(readLight(world, pos), false, 0));
             removeLight(world, Channel::Block, pos, oldBlock);
         }
         const std::uint8_t emission = blockInfo(newType).emission;
         if (emission > 0) {
-            (void)world.setLightPacked(pos,
-                                       withChannel(world.lightPackedAt(pos), false, emission));
+            (void)writeLight(world, pos, withChannel(readLight(world, pos), false, emission));
             m_queue.push_back(Node{pos, emission});
         }
         if (!stopsLight(newType)) {
@@ -287,6 +351,7 @@ void LightEngine::onBlockChanged(World& world, const glm::ivec3& pos, BlockType 
         }
         propagate(world, Channel::Block);
     }
+    flushTouched(world);
 }
 
 } // namespace cc
