@@ -166,8 +166,23 @@ void World::setSmoothLighting(bool smooth) noexcept {
     }
 }
 
-std::shared_ptr<const MeshInput> World::makeMeshInput(const Chunk& center) const {
-    auto input = std::make_shared<MeshInput>();
+std::shared_ptr<MeshInput> World::acquireMeshInput() {
+    // The control-block refcount is atomic; use_count() == 1 means only the
+    // pool still references the slot, so its worker has finished and the buffer
+    // is safe to overwrite. makeMeshInput rewrites every cell, leaving no stale
+    // data from the prior job.
+    for (const auto& slot : m_meshInputPool) {
+        if (slot.use_count() == 1) {
+            return slot;
+        }
+    }
+    auto fresh = std::make_shared<MeshInput>();
+    m_meshInputPool.push_back(fresh);
+    return fresh;
+}
+
+std::shared_ptr<const MeshInput> World::makeMeshInput(const Chunk& center) {
+    std::shared_ptr<MeshInput> input = acquireMeshInput();
     input->coord = center.coord();
     input->revision = center.meshRevision();
     input->smoothLighting = m_smoothLighting;

@@ -29,12 +29,18 @@ that's the entire pool shutdown protocol.
 
 ## Why mesh jobs get snapshots
 
-A mesh job receives a `MeshInput`: an immutable 18×18×256 copy (~84 KB) of
-the chunk plus a one-block border from its 8 lateral neighbours, taken on the
-main thread (`World::makeMeshInput`, 324 column memcpys). Workers therefore
-share **zero** state with the live world — no locks on chunk data, no torn
-reads when the player edits mid-build. The copy cost is far below the cost of
-fine-grained locking and only spikes during initial load.
+A mesh job receives a `MeshInput`: an immutable 18×18×256 copy (~166 KB:
+blocks + per-cell light) of the chunk plus a one-block border from its 8
+lateral neighbours, taken on the main thread (`World::makeMeshInput`, 324
+column memcpys). Workers therefore share **zero** state with the live world —
+no locks on chunk data, no torn reads when the player edits mid-build. The
+copy cost is far below the cost of fine-grained locking and only spikes during
+initial load.
+
+The snapshots are pooled (`World::acquireMeshInput`): a slot is reused once
+its `shared_ptr` use-count drops back to 1 (the worker released it), so a load
+wave of 16 jobs/frame reuses buffers instead of churning ~2.6 MB/frame of heap.
+The atomic refcount is what makes "is this slot free?" race-free.
 
 A chunk is meshable only when all 8 neighbours are loaded (border faces and
 AO need them). Corollary: a chunk whose neighbours aren't in yet stays

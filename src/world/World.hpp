@@ -103,7 +103,10 @@ private:
 
     void bumpMeshRevisionsAround(Chunk& chunk, int lx, int lz);
     [[nodiscard]] bool neighborsLoaded(ChunkCoord coord) const noexcept;
-    [[nodiscard]] std::shared_ptr<const MeshInput> makeMeshInput(const Chunk& center) const;
+    [[nodiscard]] std::shared_ptr<const MeshInput> makeMeshInput(const Chunk& center);
+    // Reuses a pooled MeshInput whose worker has finished (use_count back to 1)
+    // instead of allocating ~166 KB per mesh job during load waves.
+    [[nodiscard]] std::shared_ptr<MeshInput> acquireMeshInput();
 
     void submitTracked(std::function<void()> job);
 
@@ -127,6 +130,9 @@ private:
     // instead of every loaded chunk. An entry lingers (e.g. neighbours not yet
     // loaded) until it is successfully scheduled or its chunk unloads.
     std::unordered_set<ChunkCoord, ChunkCoordHash> m_dirtyMesh;
+    // Round-robin pool of MeshInput snapshots; a slot is reused once its worker
+    // releases it (see acquireMeshInput).
+    std::vector<std::shared_ptr<MeshInput>> m_meshInputPool;
     ConcurrentQueue<GenResult> m_genResults;
     ConcurrentQueue<MeshJobResult> m_meshResults;
 
