@@ -245,13 +245,7 @@ void Renderer::render(const FrameParams& params) {
     m_chunkShader.setInt("uAtlas", 0);
     m_atlas.bind(0);
 
-    struct VisibleChunk {
-        const ChunkMeshes* meshes;
-        glm::vec3 origin;
-        float distanceSq;
-    };
-    std::vector<VisibleChunk> visible;
-    visible.reserve(m_chunks.size());
+    m_visible.clear();
 
     for (const auto& [coord, meshes] : m_chunks) {
         const glm::vec3 origin{static_cast<float>(coord.x * Chunk::SizeX), 0.0f,
@@ -262,19 +256,20 @@ void Renderer::render(const FrameParams& params) {
             continue;
         }
         const glm::vec3 toCamera = params.cameraPos - (origin + size * 0.5f);
-        visible.push_back(VisibleChunk{&meshes, origin, glm::dot(toCamera, toCamera)});
+        m_visible.push_back(VisibleChunk{&meshes, origin, glm::dot(toCamera, toCamera)});
     }
-    m_drawnLastFrame = visible.size();
+    m_drawnLastFrame = m_visible.size();
 
     // One sort, near-to-far. Opaque draws front-to-back so early-Z rejects
     // occluded fragments; water reuses the same order in reverse for the
     // back-to-front translucent pass.
-    std::sort(visible.begin(), visible.end(), [](const VisibleChunk& a, const VisibleChunk& b) {
-        return a.distanceSq < b.distanceSq;
-    });
+    std::sort(m_visible.begin(), m_visible.end(),
+              [](const VisibleChunk& a, const VisibleChunk& b) {
+                  return a.distanceSq < b.distanceSq;
+              });
 
     m_chunkShader.setFloat("uAlpha", 1.0f);
-    for (const VisibleChunk& chunk : visible) {
+    for (const VisibleChunk& chunk : m_visible) {
         if (chunk.meshes->opaque.indexCount == 0) {
             continue;
         }
@@ -289,7 +284,7 @@ void Renderer::render(const FrameParams& params) {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDepthMask(GL_FALSE);
     m_chunkShader.setFloat("uAlpha", 0.65f);
-    for (auto it = visible.rbegin(); it != visible.rend(); ++it) {
+    for (auto it = m_visible.rbegin(); it != m_visible.rend(); ++it) {
         const VisibleChunk& chunk = *it;
         if (chunk.meshes->water.indexCount == 0) {
             continue;

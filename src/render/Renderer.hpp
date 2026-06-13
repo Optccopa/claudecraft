@@ -14,6 +14,7 @@
 #include <optional>
 #include <span>
 #include <unordered_map>
+#include <vector>
 
 namespace cc {
 
@@ -83,6 +84,11 @@ private:
         GpuMesh opaque;
         GpuMesh water;
     };
+    struct VisibleChunk {
+        const ChunkMeshes* meshes;
+        glm::vec3 origin;
+        float distanceSq;
+    };
 
     [[nodiscard]] static GpuMesh makeGpuMesh(const ChunkMeshData& data);
     [[nodiscard]] const GpuMesh& dropMesh(BlockType type);
@@ -93,6 +99,10 @@ private:
     TextureAtlas m_atlas;
     std::unordered_map<ChunkCoord, ChunkMeshes, ChunkCoordHash> m_chunks;
     std::unordered_map<BlockType, GpuMesh> m_dropMeshes; // built lazily per type
+
+    // Per-frame visible set; kept as a member so its capacity persists and the
+    // render loop does no heap allocation after the first frame.
+    std::vector<VisibleChunk> m_visible;
 
     gl::VertexArray m_highlightVao;
     gl::Buffer m_highlightVbo;
