@@ -3,6 +3,7 @@
 #include "core/ThreadPool.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <utility>
@@ -171,11 +172,26 @@ std::shared_ptr<const MeshInput> World::makeMeshInput(const Chunk& center) const
     input->blocks.resize(cells);
     input->light.resize(cells);
 
+    // The padded region only ever spans the 3x3 chunks around the centre, and
+    // those are fixed for the whole copy — fetch them once instead of hashing
+    // a chunk coord for all 324 columns.
+    const ChunkCoord base = center.coord();
+    std::array<std::array<const Chunk*, 3>, 3> neighbors{};
+    for (int bx = 0; bx < 3; ++bx) {
+        for (int bz = 0; bz < 3; ++bz) {
+            neighbors[static_cast<std::size_t>(bx)][static_cast<std::size_t>(bz)] =
+                chunkAt(ChunkCoord{base.x - 1 + bx, base.z - 1 + bz});
+        }
+    }
+
     for (int px = -1; px <= Chunk::SizeX; ++px) {
+        const int bandX = px < 0 ? 0 : (px < Chunk::SizeX ? 1 : 2);
         for (int pz = -1; pz <= Chunk::SizeZ; ++pz) {
-            const int wx = center.coord().x * Chunk::SizeX + px;
-            const int wz = center.coord().z * Chunk::SizeZ + pz;
-            const Chunk* chunk = chunkAt(chunkCoordOf(wx, wz));
+            const int bandZ = pz < 0 ? 0 : (pz < Chunk::SizeZ ? 1 : 2);
+            const Chunk* chunk =
+                neighbors[static_cast<std::size_t>(bandX)][static_cast<std::size_t>(bandZ)];
+            const int wx = base.x * Chunk::SizeX + px;
+            const int wz = base.z * Chunk::SizeZ + pz;
             const std::size_t dst =
                 static_cast<std::size_t>(((px + 1) * MeshInput::PaddedZ + (pz + 1)) *
                                          Chunk::SizeY);
