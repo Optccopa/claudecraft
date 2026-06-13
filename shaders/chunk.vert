@@ -7,7 +7,6 @@ layout(location = 2) in uint aData;
 
 uniform mat4 uViewProj;
 uniform vec3 uChunkOrigin;
-uniform vec3 uCameraPos;
 uniform float uSkyLight; // day/night scale applied to the sky channel
 uniform vec3 uSunDir;
 uniform float uScale;      // 1.0 for chunks; <1 for dropped-item mini-cubes
@@ -42,5 +41,7 @@ void main() {
     float skyContrib = sky * uSkyLight * (0.45 + 0.55 * diffuse);
     float light = max(max(skyContrib, blockLight), 0.03);
     vLight = light * ao * uLightScale;
-    vDist = distance(worldPos, uCameraPos);
+    // Planar view-space depth (clip w) — same linear fog input as the radial
+    // distance, minus the per-vertex sqrt.
+    vDist = gl_Position.w;
 }

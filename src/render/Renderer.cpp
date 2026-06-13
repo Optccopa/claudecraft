@@ -232,7 +232,6 @@ void Renderer::render(const FrameParams& params) {
 
     m_chunkShader.use();
     m_chunkShader.setMat4("uViewProj", params.viewProj);
-    m_chunkShader.setVec3("uCameraPos", params.cameraPos);
     m_chunkShader.setVec3("uFogColor", params.fogColor);
     m_chunkShader.setFloat("uFogStart", params.fogStart);
     m_chunkShader.setFloat("uFogEnd", params.fogEnd);

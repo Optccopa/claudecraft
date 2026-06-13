@@ -32,8 +32,7 @@ the packed `data` bitfield and the `fract()` atlas trick). Uniforms:
 |---|---|
 | `uViewProj` | `Camera::projection() * Camera::view(eye, yaw, pitch)` |
 | `uChunkOrigin` | chunk world origin — vertices stay chunk-local for float precision |
-| `uCameraPos` | fog distance reference |
-| `uFogStart/uFogEnd` | `fogEnd = renderDistance·16 − 8`, start = 0.65·end |
+| `uFogStart/uFogEnd` | `fogEnd = renderDistance·16 − 8`, start = 0.65·end; fog distance is planar `gl_Position.w` (no per-vertex sqrt) |
 | `uSkyLight` | 0..1 scale on the vertex sky-light channel (`FrameParams::skyLight`) |
 | `uSunDir` | unit sun direction from `render/Sky` (`FrameParams::sunDirection`) |
 | `uAlpha` | 1.0 opaque pass, 0.65 water pass |
