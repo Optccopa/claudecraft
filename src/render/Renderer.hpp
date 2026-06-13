@@ -58,6 +58,16 @@ public:
     [[nodiscard]] std::size_t meshCount() const noexcept { return m_chunks.size(); }
     [[nodiscard]] std::size_t drawnLastFrame() const noexcept { return m_drawnLastFrame; }
 
+    struct GpuStats {
+        const char* name;  // GL_RENDERER
+        int usedVramMB;    // -1 if the driver doesn't report it
+        int totalVramMB;   // -1 if unknown
+        int freeVramMB;    // -1 if unknown
+    };
+    // Current VRAM via NVX_gpu_memory_info / ATI_meminfo when present. Queried
+    // only when the extension exists so the GL debug callback stays quiet.
+    [[nodiscard]] GpuStats gpuStats() const;
+
 private:
     struct GpuMesh {
         gl::VertexArray vao;
@@ -72,6 +82,7 @@ private:
 
     [[nodiscard]] static GpuMesh makeGpuMesh(const ChunkMeshData& data);
     [[nodiscard]] const GpuMesh& dropMesh(BlockType type);
+    void detectGpu();
 
     gl::ShaderProgram m_chunkShader;
     gl::ShaderProgram m_lineShader;
@@ -81,6 +92,11 @@ private:
 
     gl::VertexArray m_highlightVao;
     gl::Buffer m_highlightVbo;
+
+    enum class VramSource { None, Nvx, Ati };
+    const char* m_gpuName = "unknown";
+    VramSource m_vramSource = VramSource::None;
+    int m_vramTotalKB = -1;
 
     std::size_t m_drawnLastFrame = 0;
 };

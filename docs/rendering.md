@@ -101,8 +101,13 @@ in `mouseUiPosition`.
 F3 toggles the debug overlay (`Application::drawDebugOverlay`): per-line
 dim-backed text down the top-left with fps/frame time, world + seed,
 position/chunk/facing, velocity + ground state, raycast target, chunk/mesh
-counts, and worker count. It renders through the same HUD batch — adding a
-line is just another `std::format` entry in its `lines` array.
+counts, worker count, and machine stats — CPU load + RAM (`core/SystemStats`,
+Win32 `GetSystemTimes`/`GlobalMemoryStatusEx`/`GetProcessMemoryInfo`, sampled
+twice a second) and GPU name + VRAM. VRAM comes from `Renderer::gpuStats`,
+which reads `GL_NVX_gpu_memory_info` or `GL_ATI_meminfo` only when the
+extension is present (so the GL debug callback stays quiet); absent both, just
+the renderer name shows. Lines accumulate in a `std::vector<std::string>`, so
+adding one is another `push_back`.
 
 ## Debug output
 

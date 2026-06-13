@@ -720,7 +720,10 @@ void Application::drawDebugOverlay(const glm::ivec2& fbSize, const RaycastHit& t
     const int clockHour = static_cast<int>(dayHours);
     const int clockMinute = static_cast<int>((dayHours - clockHour) * 60.0);
 
-    const std::array<std::string, 12> lines{
+    m_stats.update(glfwGetTime());
+    const Renderer::GpuStats gpu = m_renderer.gpuStats();
+
+    std::vector<std::string> lines{
         std::format("claudecraft {} | {:.0f} fps ({:.2f} ms)", kDebugBuild ? "debug" : "release",
                     m_smoothedFps, m_smoothedFps > 0.0 ? 1000.0 / m_smoothedFps : 0.0),
         std::format("World: {} Seed: {} [{}]", m_currentWorld.name, m_currentWorld.seed,
@@ -748,7 +751,17 @@ void Application::drawDebugOverlay(const glm::ivec2& fbSize, const RaycastHit& t
         std::format("chunks: {} loaded, {} drawn, {} meshes", m_world->loadedChunkCount(),
                     m_renderer.drawnLastFrame(), m_renderer.meshCount()),
         std::format("workers: {}", m_pool.threadCount()),
+        std::format("cpu: {:.0f}%  ram: {:.0f} MB proc / {:.0f} of {:.0f} MB",
+                    m_stats.cpuPercent(), m_stats.processRamMB(), m_stats.usedRamMB(),
+                    m_stats.totalRamMB()),
+        std::format("gpu: {}", gpu.name),
     };
+    if (gpu.totalVramMB >= 0) {
+        lines.push_back(std::format("vram: {} / {} MB ({} free)", gpu.usedVramMB, gpu.totalVramMB,
+                                    gpu.freeVramMB));
+    } else if (gpu.freeVramMB >= 0) {
+        lines.push_back(std::format("vram: {} MB free", gpu.freeVramMB));
+    }
 
     float yTop = static_cast<float>(fbSize.y) - 10.0f;
     for (const std::string& line : lines) {

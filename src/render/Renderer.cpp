@@ -1,5 +1,6 @@
 #include "render/Renderer.hpp"
 
+#include "core/Log.hpp"
 #include "render/Frustum.hpp"
 #include "world/Chunk.hpp"
 
@@ -7,10 +8,17 @@
 
 #include <algorithm>
 #include <array>
+#include <format>
+#include <string_view>
 #include <vector>
 
 namespace cc {
 namespace {
+
+// VRAM query enums, absent from the core GL headers.
+constexpr GLenum kGpuMemTotalNvx = 0x9048;   // GL_GPU_MEMORY_INFO_TOTAL_AVAILABLE_MEMORY_NVX
+constexpr GLenum kGpuMemCurrentNvx = 0x9049; // GL_GPU_MEMORY_INFO_CURRENT_AVAILABLE_VIDMEM_NVX
+constexpr GLenum kTextureFreeMemAti = 0x87FC; // GL_TEXTURE_FREE_MEMORY_ATI
 
 void setupChunkAttributes() {
     constexpr GLsizei stride = sizeof(ChunkVertex);
@@ -87,6 +95,52 @@ Renderer::Renderer()
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
     glCullFace(GL_BACK);
+
+    detectGpu();
+}
+
+void Renderer::detectGpu() {
+    if (const GLubyte* renderer = glGetString(GL_RENDERER); renderer != nullptr) {
+        m_gpuName = reinterpret_cast<const char*>(renderer);
+    }
+    // Core profile drops the old GL_EXTENSIONS string; enumerate indexed.
+    GLint count = 0;
+    glGetIntegerv(GL_NUM_EXTENSIONS, &count);
+    for (GLint i = 0; i < count; ++i) {
+        const char* ext = reinterpret_cast<const char*>(glGetStringi(GL_EXTENSIONS, i));
+        if (ext == nullptr) {
+            continue;
+        }
+        const std::string_view name{ext};
+        if (name == "GL_NVX_gpu_memory_info") {
+            m_vramSource = VramSource::Nvx;
+            glGetIntegerv(kGpuMemTotalNvx, &m_vramTotalKB);
+            return; // prefer the NVIDIA path: it reports total + current
+        }
+        if (name == "GL_ATI_meminfo") {
+            m_vramSource = VramSource::Ati;
+        }
+    }
+    const char* source = m_vramSource == VramSource::Nvx   ? "NVX_gpu_memory_info"
+                         : m_vramSource == VramSource::Ati ? "ATI_meminfo"
+                                                           : "no VRAM query";
+    logInfo(std::format("gpu: {} ({})", m_gpuName, source));
+}
+
+Renderer::GpuStats Renderer::gpuStats() const {
+    GpuStats stats{m_gpuName, -1, -1, -1};
+    if (m_vramSource == VramSource::Nvx) {
+        GLint currentKB = 0;
+        glGetIntegerv(kGpuMemCurrentNvx, &currentKB);
+        stats.totalVramMB = m_vramTotalKB / 1024;
+        stats.freeVramMB = currentKB / 1024;
+        stats.usedVramMB = (m_vramTotalKB - currentKB) / 1024;
+    } else if (m_vramSource == VramSource::Ati) {
+        GLint info[4] = {0, 0, 0, 0}; // [0] = total free texture memory, KB
+        glGetIntegerv(kTextureFreeMemAti, info);
+        stats.freeVramMB = info[0] / 1024;
+    }
+    return stats;
 }
 
 Renderer::GpuMesh Renderer::makeGpuMesh(const ChunkMeshData& data) {

@@ -2,6 +2,7 @@
 
 #include "app/Settings.hpp"
 #include "app/Window.hpp"
+#include "core/SystemStats.hpp"
 #include "core/ThreadPool.hpp"
 #include "input/Input.hpp"
 #include "player/Camera.hpp"
@@ -117,6 +118,7 @@ private:
     double m_lastTitleUpdate = 0.0;
     int m_framesSinceTitle = 0;
     double m_smoothedFps = 0.0;
+    SystemStats m_stats;
 };
 
 } // namespace cc

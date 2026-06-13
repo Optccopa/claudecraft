@@ -29,7 +29,7 @@ If your MSVC version differs, update `compilerPath` in `.vscode/c_cpp_properties
 | 1–9, scroll wheel | Select hotbar slot |
 | Q | Drop one of the selected item (thrown along your view) |
 | E | Inventory (creative gets an infinite ALL BLOCKS palette) |
-| F3 | Debug overlay (fps, position, light, biome, target, chunk stats) |
+| F3 | Debug overlay (fps, position, light, biome, target, chunk stats, CPU/GPU/RAM) |
 | Esc | Close inventory / pause menu (resume / settings / quit to menu) |
 
 The game opens on a main menu with a randomly seeded terrain fly-over in the background. Play leads to the worlds screen: type a name, pick creative or survival, and CREATE (random seed) — or load an existing world from the list. Worlds have a persistent day/night cycle, inventory, caves with ores, and biomes (plains, forest, desert, mountains, ocean). Pause quits back to the menu. The window title shows the world, FPS, position, and loaded/drawn chunk counts.
