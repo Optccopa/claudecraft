@@ -18,6 +18,11 @@ Per-chunk frustum culling: Gribb/Hartmann plane extraction from the
 view-projection matrix, p-vertex AABB test against the full-height chunk box
 (16×256×16). Title bar's "N drawn" is the post-cull count.
 
+G toggles a chunk-border wireframe (`Renderer::drawChunkBorders`): the cell
+grid on the four walls of the player's current chunk column, streamed each
+frame and drawn through the line shader with depth test off so it reads
+through terrain.
+
 ## Chunk shader contract
 
 Vertex input is the 24-byte `ChunkVertex` (see [meshing.md](meshing.md) for

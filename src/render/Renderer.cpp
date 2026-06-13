@@ -92,11 +92,63 @@ Renderer::Renderer()
                           reinterpret_cast<const void*>(0));
     glBindVertexArray(0);
 
+    m_chunkBorderVao.bind();
+    glBindBuffer(GL_ARRAY_BUFFER, m_chunkBorderVbo.id());
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float),
+                          reinterpret_cast<const void*>(0));
+    glBindVertexArray(0);
+
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
     glCullFace(GL_BACK);
 
     detectGpu();
+}
+
+void Renderer::drawChunkBorders(const glm::mat4& viewProj, ChunkCoord chunk) {
+    const float x0 = static_cast<float>(chunk.x * Chunk::SizeX);
+    const float z0 = static_cast<float>(chunk.z * Chunk::SizeZ);
+    const float x1 = x0 + Chunk::SizeX;
+    const float z1 = z0 + Chunk::SizeZ;
+    const float yTop = static_cast<float>(Chunk::SizeY);
+
+    std::vector<float> verts;
+    const auto line = [&](float ax, float ay, float az, float bx, float by, float bz) {
+        verts.insert(verts.end(), {ax, ay, az, bx, by, bz});
+    };
+    // Cell grid on each of the four chunk walls: vertical lines at every block
+    // column, horizontal rings every 16 blocks of height.
+    for (int i = 0; i <= Chunk::SizeX; ++i) {
+        const float x = x0 + static_cast<float>(i);
+        line(x, 0.0f, z0, x, yTop, z0);
+        line(x, 0.0f, z1, x, yTop, z1);
+    }
+    for (int i = 0; i <= Chunk::SizeZ; ++i) {
+        const float z = z0 + static_cast<float>(i);
+        line(x0, 0.0f, z, x0, yTop, z);
+        line(x1, 0.0f, z, x1, yTop, z);
+    }
+    for (int y = 0; y <= Chunk::SizeY; y += Chunk::SizeX) {
+        const float fy = static_cast<float>(y);
+        line(x0, fy, z0, x1, fy, z0);
+        line(x0, fy, z1, x1, fy, z1);
+        line(x0, fy, z0, x0, fy, z1);
+        line(x1, fy, z0, x1, fy, z1);
+    }
+
+    m_chunkBorderVao.bind();
+    glBindBuffer(GL_ARRAY_BUFFER, m_chunkBorderVbo.id());
+    glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(verts.size() * sizeof(float)),
+                 verts.data(), GL_STREAM_DRAW);
+
+    m_lineShader.use();
+    m_lineShader.setMat4("uMvp", viewProj);
+    m_lineShader.setVec4("uColor", glm::vec4{0.2f, 0.9f, 1.0f, 1.0f});
+    glDisable(GL_DEPTH_TEST); // read through terrain — it's a debug aid
+    glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(verts.size() / 3));
+    glEnable(GL_DEPTH_TEST);
+    glBindVertexArray(0);
 }
 
 void Renderer::detectGpu() {

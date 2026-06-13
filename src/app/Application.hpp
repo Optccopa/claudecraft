@@ -103,6 +103,7 @@ private:
     std::vector<WorldInfo> m_worlds;
     WorldInfo m_currentWorld;
     bool m_showDebug = false;
+    bool m_showChunkBorders = false;
 
     Inventory m_inventory;
     Drops m_drops;

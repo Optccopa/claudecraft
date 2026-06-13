@@ -48,6 +48,10 @@ public:
     // Call after render(): reuses the frame's chunk-shader state.
     void drawDrops(std::span<const DropDraw> drops);
 
+    // Debug wireframe: the cell grid on the four walls of one chunk column,
+    // drawn depth-test-off so it reads through terrain.
+    void drawChunkBorders(const glm::mat4& viewProj, ChunkCoord chunk);
+
     // Rebuilds the atlas from an ordered pack stack (highest priority first);
     // an empty span restores the built-in/procedural atlas. Main thread only.
     void setResourcePacks(std::span<const std::filesystem::path> packs) {
@@ -92,6 +96,8 @@ private:
 
     gl::VertexArray m_highlightVao;
     gl::Buffer m_highlightVbo;
+    gl::VertexArray m_chunkBorderVao;
+    gl::Buffer m_chunkBorderVbo;
 
     enum class VramSource { None, Nvx, Ati };
     const char* m_gpuName = "unknown";

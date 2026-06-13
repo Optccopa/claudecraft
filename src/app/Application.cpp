@@ -257,6 +257,12 @@ void Application::renderWorld(World& world, const glm::ivec2& fbSize, const glm:
     const glm::mat4 viewProj = m_camera.projection() * Camera::view(eye, yawDeg, pitchDeg);
     m_renderer.render(Renderer::FrameParams{viewProj, eye, sky.skyColor, sky.sunDirection,
                                             fogEnd * 0.65f, fogEnd, sky.skyLight, highlight});
+
+    if (m_showChunkBorders && m_world != nullptr && &world == m_world.get()) {
+        const ChunkCoord chunk = World::chunkCoordOf(static_cast<int>(std::floor(eye.x)),
+                                                     static_cast<int>(std::floor(eye.z)));
+        m_renderer.drawChunkBorders(viewProj, chunk);
+    }
 }
 
 void Application::saveWorldMeta() {
@@ -275,6 +281,9 @@ void Application::saveWorldMeta() {
 void Application::handleGameplayInput(float frameDt, const RaycastHit& target) {
     if (m_input.wasPressed(GLFW_KEY_F3)) {
         m_showDebug = !m_showDebug;
+    }
+    if (m_input.wasPressed(GLFW_KEY_G)) {
+        m_showChunkBorders = !m_showChunkBorders;
     }
     const bool survival = m_currentWorld.mode == GameMode::Survival;
     const Keybinds& keys = m_settings.keys;
