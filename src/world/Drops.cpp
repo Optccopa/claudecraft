@@ -16,6 +16,8 @@ constexpr float kMagnetRadius = 2.2f;
 constexpr float kPickupRadius = 0.9f;
 constexpr float kMagnetSpeed = 6.0f;
 constexpr float kDespawnSeconds = 300.0f;
+constexpr float kThrowSpeed = 5.0f;
+constexpr float kThrowPickupDelay = 0.8f;
 
 [[nodiscard]] bool solidAt(const World& world, const glm::vec3& p) noexcept {
     return blockInfo(world.blockAt(glm::ivec3{static_cast<int>(std::floor(p.x)),
@@ -38,15 +40,26 @@ void Drops::spawn(const glm::ivec3& cell, BlockType type, std::uint32_t scatterH
     });
 }
 
+void Drops::throwOut(const glm::vec3& origin, const glm::vec3& dir, BlockType type) {
+    m_drops.push_back(Drop{
+        origin,
+        dir * kThrowSpeed + glm::vec3{0.0f, 1.5f, 0.0f},
+        type,
+        0.0f,
+        kThrowPickupDelay,
+    });
+}
+
 std::vector<BlockType> Drops::update(float dt, const World& world, const glm::vec3& playerPos) {
     std::vector<BlockType> pickedUp;
 
     for (Drop& drop : m_drops) {
         drop.age += dt;
+        drop.pickupDelay = std::max(drop.pickupDelay - dt, 0.0f);
 
         const glm::vec3 toPlayer = playerPos - drop.position;
         const float dist = glm::length(toPlayer);
-        if (dist < kMagnetRadius && dist > 1e-3f) {
+        if (drop.pickupDelay == 0.0f && dist < kMagnetRadius && dist > 1e-3f) {
             drop.velocity = toPlayer * (kMagnetSpeed / dist);
         } else {
             drop.velocity.y -= kGravity * dt;
@@ -72,7 +85,7 @@ std::vector<BlockType> Drops::update(float dt, const World& world, const glm::ve
         }
         drop.position = next;
 
-        if (dist < kPickupRadius) {
+        if (drop.pickupDelay == 0.0f && dist < kPickupRadius) {
             pickedUp.push_back(drop.type);
             drop.age = kDespawnSeconds + 1.0f; // mark for removal below
         }

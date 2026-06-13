@@ -46,7 +46,7 @@ struct BindRow {
     const char* label;
     int Keybinds::* member;
 };
-constexpr std::array<BindRow, 8> kBindRows{{
+constexpr std::array<BindRow, 9> kBindRows{{
     {"FORWARD", &Keybinds::forward},
     {"BACK", &Keybinds::back},
     {"LEFT", &Keybinds::left},
@@ -55,6 +55,7 @@ constexpr std::array<BindRow, 8> kBindRows{{
     {"DESCEND", &Keybinds::descend},
     {"FLY", &Keybinds::fly},
     {"INVENTORY", &Keybinds::inventory},
+    {"DROP", &Keybinds::drop},
 }};
 
 // Grass crumbles to dirt; everything else drops itself.
@@ -297,6 +298,15 @@ void Application::handleGameplayInput(float frameDt, const RaycastHit& target) {
     if (scroll != 0.0f) {
         constexpr int slots = Inventory::HotbarSize;
         m_selectedSlot = (m_selectedSlot - static_cast<int>(scroll) % slots + slots) % slots;
+    }
+
+    if (m_input.wasPressed(keys.drop)) {
+        ItemStack& stack = m_inventory.slot(m_selectedSlot);
+        if (!stack.empty()) {
+            m_drops.throwOut(m_player.eyePosition(1.0f),
+                             Camera::direction(m_player.yaw(), m_player.pitch()), stack.type);
+            m_inventory.consumeOne(m_selectedSlot);
+        }
     }
 
     handleBlockEdits(frameDt, target);
@@ -860,7 +870,7 @@ void Application::updateSettings(float frameDt, const glm::ivec2& fbSize) {
             }
         }
 
-        constexpr float kBindStep = 58.0f;
+        constexpr float kBindStep = 52.0f;
         if (settingRow(fbSize, rowY, "SENSITIVITY",
                        std::format("{:.0f}%", m_settings.sensitivity * 100.0f))) {
             m_settings.sensitivity += 0.2f;

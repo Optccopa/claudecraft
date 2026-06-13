@@ -36,6 +36,11 @@ the player inside 2.2 blocks, pickup inside 0.9, despawn after 5 minutes or
 below the world. Drops are **not persisted** — they live and die with the
 session, which keeps them out of the save format.
 
+Mining drops `spawn` at the broken cell. The DROP key (default Q, rebindable)
+`throwOut`s one item from the selected hotbar slot — launched along the look
+vector with a brief pickup delay so it doesn't magnet straight back. Both
+spawn paths share a `pickupDelay` that gates magnet and pickup.
+
 Rendering reuses the chunk shader: per-type unit-cube meshes (built lazily)
 drawn with `uScale 0.3` and the drop's cell light passed via `uLightScale`
 (vertex light is baked full-bright block-channel so sun/sky scaling doesn't

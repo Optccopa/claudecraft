@@ -17,6 +17,7 @@ struct Drop {
     glm::vec3 velocity;
     BlockType type;
     float age = 0.0f;
+    float pickupDelay = 0.0f; // suppresses magnet + pickup until it elapses
 };
 
 // Dropped-item entities: gravity, settle on solid ground, magnet toward the
@@ -25,6 +26,10 @@ struct Drop {
 class Drops {
 public:
     void spawn(const glm::ivec3& cell, BlockType type, std::uint32_t scatterHash);
+
+    // Player-thrown item (Q): launches from origin along dir with a brief
+    // pickup delay so it doesn't magnet straight back to the thrower.
+    void throwOut(const glm::vec3& origin, const glm::vec3& dir, BlockType type);
 
     // Fixed-timestep simulation; returns the types picked up this step
     // (one entry per drop collected).

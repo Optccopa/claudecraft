@@ -20,7 +20,7 @@ struct KeyEntry {
     int Keybinds::* member;
 };
 
-constexpr std::array<KeyEntry, 8> kKeyEntries{{
+constexpr std::array<KeyEntry, 9> kKeyEntries{{
     {"key.forward", &Keybinds::forward},
     {"key.back", &Keybinds::back},
     {"key.left", &Keybinds::left},
@@ -29,13 +29,15 @@ constexpr std::array<KeyEntry, 8> kKeyEntries{{
     {"key.descend", &Keybinds::descend},
     {"key.fly", &Keybinds::fly},
     {"key.inventory", &Keybinds::inventory},
+    {"key.drop", &Keybinds::drop},
 }};
 
 } // namespace
 
 Keybinds defaultKeybinds() noexcept {
-    return Keybinds{GLFW_KEY_W,     GLFW_KEY_S, GLFW_KEY_A, GLFW_KEY_D,
-                    GLFW_KEY_SPACE, GLFW_KEY_LEFT_SHIFT, GLFW_KEY_F, GLFW_KEY_E};
+    return Keybinds{GLFW_KEY_W,     GLFW_KEY_S,          GLFW_KEY_A, GLFW_KEY_D,
+                    GLFW_KEY_SPACE, GLFW_KEY_LEFT_SHIFT, GLFW_KEY_F, GLFW_KEY_E,
+                    GLFW_KEY_Q};
 }
 
 std::string_view keyName(int key) noexcept {

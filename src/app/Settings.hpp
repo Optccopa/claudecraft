@@ -16,6 +16,7 @@ struct Keybinds {
     int descend;
     int fly;
     int inventory;
+    int drop;
 };
 
 [[nodiscard]] Keybinds defaultKeybinds() noexcept;
