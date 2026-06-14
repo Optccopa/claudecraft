@@ -99,6 +99,25 @@ struct Rgba {
         return shade(72, 56, 40, ((px % 4) < 2 ? 0.82f : 1.0f) - 0.1f * n);
     case 20: // spruce needles: dark bluish green
         return shade(38, 84, 56, 1.0f - 0.28f * n);
+    case 21: // cactus side: cactus green with vertical ribs
+        return shade(58, 110, 58,
+                     ((px == 0 || px == kTilePixels - 1 || (px % 7) == 3) ? 0.7f : 1.0f) -
+                         0.12f * n);
+    case 22: // cactus top: lighter green core inside a darker rim
+    {
+        const int d = std::max(std::abs(px - 8), std::abs(py - 8));
+        return shade(74, 132, 70, (d < 5 ? 1.0f : 0.78f) - 0.12f * n);
+    }
+    case 23: // cactus bottom
+        return shade(52, 96, 52, speckle);
+    case 24: // short grass: green blades on a transparent field
+    {
+        const int bladeTop = 5 + static_cast<int>(pixelNoise(px, 0, 24) * 8.0f);
+        if ((px % 3) == 0 || py >= bladeTop) {
+            return Rgba{0, 0, 0, 0};
+        }
+        return shade(74, 142, 66, 1.0f - 0.3f * n);
+    }
     case 12: // coal ore
     case 13: // iron ore
     case 14: // gold ore
@@ -175,7 +194,7 @@ struct TileTex {
     const char* name;
     Tint tint;
 };
-constexpr std::array<TileTex, 21> kTileTextures{{
+constexpr std::array<TileTex, 25> kTileTextures{{
     {0, "stone", Tint::None},          {1, "dirt", Tint::None},
     {2, "grass_block_top", Tint::Grass}, {3, "grass_block_side", Tint::None},
     {4, "sand", Tint::None},           {5, "water_still", Tint::Water},
@@ -186,7 +205,9 @@ constexpr std::array<TileTex, 21> kTileTextures{{
     {14, "gold_ore", Tint::None},      {15, "diamond_ore", Tint::None},
     {16, "glowstone", Tint::None},     {17, "cherry_log", Tint::None},
     {18, "cherry_leaves", Tint::None}, {19, "spruce_log", Tint::None},
-    {20, "spruce_leaves", Tint::Spruce},
+    {20, "spruce_leaves", Tint::Spruce}, {21, "cactus_side", Tint::None},
+    {22, "cactus_top", Tint::None},    {23, "cactus_bottom", Tint::None},
+    {24, "short_grass", Tint::Grass},
 }};
 
 // A resource pack, either a .zip or an extracted directory. Resolves block

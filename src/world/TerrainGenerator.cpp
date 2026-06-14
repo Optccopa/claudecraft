@@ -289,6 +289,47 @@ std::unique_ptr<Chunk> TerrainGenerator::generate(ChunkCoord coord) const {
         }
     }
 
+    // Surface scatter, hashed off the seed like trees so a seed reproduces it
+    // exactly: cactus columns on desert sand, tall grass on any grass surface.
+    // Both are one cell wide and grow straight up, so they need no chunk margin.
+    for (int lx = 0; lx < Chunk::SizeX; ++lx) {
+        for (int lz = 0; lz < Chunk::SizeZ; ++lz) {
+            const std::size_t ci = static_cast<std::size_t>(lx * Chunk::SizeZ + lz);
+            const int h = heightCache[ci];
+            if (h <= SeaLevel || chunk->at(lx, h + 1, lz) != BlockType::Air) {
+                continue; // underwater, or the cell above is already a trunk
+            }
+            const int wx = coord.x * Chunk::SizeX + lx;
+            const int wz = coord.z * Chunk::SizeZ + lz;
+            const BlockType surface = chunk->at(lx, h, lz);
+
+            if (surface == BlockType::Sand && biomeCache[ci] == Biome::Desert) {
+                const std::uint32_t hash = hashCoords(wx, wz, m_seed ^ 0x000CAC75u);
+                if (hash % 1000u < 6u) {
+                    const int height = 1 + static_cast<int>((hash >> 10) % 3u);
+                    if (h + height < Chunk::SizeY) {
+                        for (int dy = 1; dy <= height; ++dy) {
+                            chunk->set(lx, h + dy, lz, BlockType::Cactus);
+                        }
+                    }
+                }
+            } else if (surface == BlockType::Grass && h + 1 < Chunk::SizeY) {
+                std::uint32_t density = 40;
+                switch (biomeCache[ci]) {
+                case Biome::Forest: density = 130; break;
+                case Biome::CherryGrove: density = 90; break;
+                case Biome::Plains: density = 60; break;
+                case Biome::Taiga: density = 45; break;
+                case Biome::Mountains: density = 25; break;
+                default: break;
+                }
+                if (hashCoords(wx, wz, m_seed ^ 0x6A557000u) % 1000u < density) {
+                    chunk->set(lx, h + 1, lz, BlockType::TallGrass);
+                }
+            }
+        }
+    }
+
     return chunk;
 }
 

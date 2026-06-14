@@ -50,7 +50,13 @@ the player inside 2.2 blocks, pickup inside 0.9, despawn after 5 minutes or
 below the world. Drops are **not persisted** — they live and die with the
 session, which keeps them out of the save format.
 
-Mining drops `spawn` at the broken cell. The DROP key (default Q, rebindable)
+The crosshair raycast selects any `isTargetable` block — solid blocks plus
+non-solid breakables (tall grass), so plants can be mined even though the
+player walks through them; air and water stay non-selectable. Mining drops
+`spawn` at the broken cell via `dropTypeFor`: blocks with
+`BlockInfo::dropsItem` false (tall grass) yield nothing — signalled by an
+`Air` return that skips the spawn — the grass block crumbles to dirt, and
+everything else drops itself. The DROP key (default Q, rebindable)
 `throwOut`s one item from the selected hotbar slot — launched along the look
 vector with a brief pickup delay so it doesn't magnet straight back. Both
 spawn paths share a `pickupDelay` that gates magnet and pickup.
@@ -63,7 +69,12 @@ double-apply). A small sine bob is added on the CPU.
 ## Adding a block type
 
 1. Append to `BlockType` (never reorder — ids are serialized raw).
-2. Add its `BlockInfo` row (tiles, emission, opacity, hardness) and name.
-3. Paint its tile in `TextureAtlas` (`tilePixel`).
-4. It's automatically minable, droppable, stackable and palette-visible
-   (palette skips Air and Bedrock).
+2. Add its `BlockInfo` row (tiles, emission, opacity, solidity, breakable,
+   `dropsItem`, `shape`/`inset`, hardness) and its Minecraft-id name.
+3. Add its tile(s) to `TextureAtlas` (`kTileTextures` for pack loading and a
+   `tilePixel` case for the procedural fallback).
+4. For a non-cube look, set `shape` to `Cross` (billboard) or `Box` (inset
+   column); the mesher's `meshSpecialShapes` renders both. Cube blocks need
+   nothing extra.
+5. It's automatically minable, droppable (unless `dropsItem` is false),
+   stackable and palette-visible (palette skips Air and Bedrock).

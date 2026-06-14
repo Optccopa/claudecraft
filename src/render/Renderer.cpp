@@ -62,9 +62,10 @@ void setupChunkAttributes() {
             const glm::vec3& c = face.corners[i];
             const std::uint32_t vdata = static_cast<std::uint32_t>(face.tile) | (3u << 8) |
                                         (face.normalIndex << 10) | (15u << 17);
-            data.vertices.push_back(packChunkVertex(static_cast<int>(c.x), static_cast<int>(c.y),
-                                                    static_cast<int>(c.z), kUvs[i][0], kUvs[i][1],
-                                                    vdata));
+            data.vertices.push_back(packChunkVertex(static_cast<int>(c.x) * 16,
+                                                    static_cast<int>(c.y) * 16,
+                                                    static_cast<int>(c.z) * 16, kUvs[i][0],
+                                                    kUvs[i][1], vdata));
         }
         for (const std::uint32_t i : {0u, 1u, 2u, 0u, 2u, 3u}) {
             data.indices.push_back(base + i);
@@ -298,9 +299,13 @@ void Renderer::render(const FrameParams& params) {
 
     if (params.highlightedBlock.has_value()) {
         const glm::vec3 pos{*params.highlightedBlock};
-        // Slight inflation keeps the wireframe from z-fighting the block faces.
-        const glm::mat4 model = glm::scale(
-            glm::translate(glm::mat4{1.0f}, pos - glm::vec3{0.002f}), glm::vec3{1.004f});
+        // The unit-cube wireframe is scaled to the block's local box so it hugs
+        // inset shapes (cactus); slight inflation avoids z-fighting the faces.
+        const glm::vec3 size = params.highlightMax - params.highlightMin;
+        const glm::mat4 model =
+            glm::scale(glm::translate(glm::mat4{1.0f},
+                                      pos + params.highlightMin - glm::vec3{0.002f}),
+                       size + glm::vec3{0.004f});
         m_lineShader.use();
         m_lineShader.setMat4("uMvp", params.viewProj * model);
         m_lineShader.setVec4("uColor", glm::vec4{0.05f, 0.05f, 0.05f, 1.0f});

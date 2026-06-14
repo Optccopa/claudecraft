@@ -1,6 +1,6 @@
 #version 330 core
 
-// packed position: x | z << 5 | y << 10
+// packed position in sixteenths of a block: x | z << 9 | y << 18
 layout(location = 0) in uint aPos;
 // packed texcoords: u | v << 16 (block units)
 layout(location = 1) in uint aUv;
@@ -29,8 +29,8 @@ const vec3 kNormals[6] = vec3[6](
 const float kAoCurve[4] = float[4](0.45, 0.65, 0.85, 1.0);
 
 void main() {
-    vec3 localPos = vec3(float(aPos & 0x1Fu), float((aPos >> 10u) & 0x1FFu),
-                         float((aPos >> 5u) & 0x1Fu));
+    vec3 localPos = vec3(float(aPos & 0x1FFu), float((aPos >> 18u) & 0x1FFFu),
+                         float((aPos >> 9u) & 0x1FFu)) / 16.0;
     vec3 worldPos = uChunkOrigin + (localPos - uCenter) * uScale;
     gl_Position = uViewProj * vec4(worldPos, 1.0);
     vUv = vec2(float(aUv & 0xFFFFu), float(aUv >> 16u));

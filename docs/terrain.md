@@ -104,6 +104,22 @@ canopy never crosses a chunk border (2 blocks, 3 for cherry's wider crown) —
 the price of order-independent parallel generation (no cross-chunk structure
 writes, no pending-block queues).
 
+## Surface scatter (cactus, tall grass)
+
+A second pass over every column (no margin needed — both are one cell wide and
+grow straight up) places, on the cell above an above-water surface that the
+tree pass left empty:
+
+- **Cactus** on desert sand: a 1–3 block column, ~6 per 1000 columns. Hash
+  salt `seed ^ 0x000CAC75`; the high hash bits pick the height so it's
+  independent of the placement roll.
+- **Tall grass** (`TallGrass`, a cross-billboard plant) on any grass surface,
+  per 1000 columns: forest 130, cherry grove 90, plains 60, taiga 45,
+  mountains 25, else 40. Hash salt `seed ^ 0x6A557000`.
+
+Both use independent `hashCoords` salts so they don't correlate with trees or
+each other, keeping the same-seed-same-world guarantee.
+
 ## Determinism rules
 
 When extending generation, preserve these or saves/multiworld break:

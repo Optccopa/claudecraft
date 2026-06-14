@@ -67,8 +67,12 @@ constexpr std::array<BindRow, 10> kBindRows{{
     {"DROP", &Keybinds::drop},
 }};
 
-// Grass crumbles to dirt; everything else drops itself.
+// Blocks flagged no-drop yield nothing (Air signals that); grass block
+// crumbles to dirt; everything else drops itself.
 [[nodiscard]] BlockType dropTypeFor(BlockType broken) noexcept {
+    if (!blockInfo(broken).dropsItem) {
+        return BlockType::Air;
+    }
     return broken == BlockType::Grass ? BlockType::Dirt : broken;
 }
 
@@ -267,8 +271,17 @@ void Application::renderWorld(World& world, const glm::ivec2& fbSize, const glm:
 
     m_camera.setAspect(static_cast<float>(fbSize.x) / static_cast<float>(fbSize.y));
     const glm::mat4 viewProj = m_camera.projection() * Camera::view(eye, yawDeg, pitchDeg);
-    m_renderer.render(Renderer::FrameParams{viewProj, eye, sky.skyColor, sky.sunDirection,
-                                            fogEnd * 0.65f, fogEnd, sky.skyLight, highlight});
+    Renderer::FrameParams params{viewProj,       eye,         sky.skyColor, sky.sunDirection,
+                                 fogEnd * 0.65f, fogEnd,      sky.skyLight, highlight};
+    if (highlight.has_value()) {
+        const BlockInfo& info = blockInfo(world.blockAt(*highlight));
+        if (info.shape == BlockShape::Box) {
+            const float in = static_cast<float>(info.inset) / 16.0f;
+            params.highlightMin = {in, 0.0f, in};
+            params.highlightMax = {1.0f - in, 1.0f, 1.0f - in};
+        }
+    }
+    m_renderer.render(params);
 
     if (m_showChunkBorders && m_world != nullptr && &world == m_world.get()) {
         const ChunkCoord chunk = World::chunkCoordOf(static_cast<int>(std::floor(eye.x)),
@@ -366,7 +379,9 @@ void Application::handleBlockEdits(float frameDt, const RaycastHit& target) {
             const BlockType type = m_world->blockAt(target.block);
             if (m_miningProgress >= blockInfo(type).hardness &&
                 m_world->setBlock(target.block, BlockType::Air)) {
-                m_drops.spawn(target.block, dropTypeFor(type), scatterHash(target.block));
+                if (const BlockType drop = dropTypeFor(type); drop != BlockType::Air) {
+                    m_drops.spawn(target.block, drop, scatterHash(target.block));
+                }
                 m_miningProgress = 0.0f;
             }
         } else {

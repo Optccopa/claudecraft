@@ -21,7 +21,12 @@ void main() {
     // keeps the wrap seam and atlas borders artifact-free.
     vec2 tileOrigin = vec2(float(vTile % 8u), float(vTile / 8u)) / kTilesPerRow;
     vec2 uv = tileOrigin + fract(vUv) / kTilesPerRow;
-    vec3 albedo = texture(uAtlas, uv).rgb;
+    vec4 texel = texture(uAtlas, uv);
+    // Cutout for cross-plant billboards (tall grass): their tile is transparent
+    // outside the blades. Opaque cubes ship alpha 1, so this never clips them.
+    if (texel.a < 0.5) {
+        discard;
+    }
     float fog = smoothstep(uFogStart, uFogEnd, vDist);
-    fragColor = vec4(mix(albedo * vLight, uFogColor, fog), uAlpha);
+    fragColor = vec4(mix(texel.rgb * vLight, uFogColor, fog), uAlpha);
 }

@@ -42,7 +42,7 @@ RaycastHit raycast(const World& world, const glm::vec3& origin, const glm::vec3&
 
     float t = 0.0f;
     while (t <= maxDistance) {
-        if (blockInfo(world.blockAt(cell)).solid) {
+        if (isTargetable(world.blockAt(cell))) {
             return RaycastHit{true, cell, previous};
         }
         previous = cell;

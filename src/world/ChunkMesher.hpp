@@ -11,7 +11,10 @@
 namespace cc {
 
 struct ChunkVertex {
-    // chunk-local position, x | z << 5 | y << 10 (x,z in [0,16], y in [0,256])
+    // chunk-local position in sixteenths of a block: x | z << 9 | y << 18
+    // (x,z in [0,256] = [0,16] blocks, y in [0,4096] = [0,256] blocks). The
+    // 1/16 grid lets non-full blocks (cactus, future slabs) place sub-block
+    // vertices; the shader divides by 16 to recover block space.
     std::uint32_t pos;
     // block-space texcoords u | v << 16; fract() in the shader tiles the atlas
     std::uint32_t uv;
@@ -20,14 +23,14 @@ struct ChunkVertex {
 };
 static_assert(sizeof(ChunkVertex) == 12);
 
-// Coordinates are exact small integers (greedy quads land on block edges), so
-// the float positions/UVs pack losslessly into two uint32s. Shared by the
-// mesher and the dropped-item cubes that reuse the chunk vertex format.
-[[nodiscard]] constexpr ChunkVertex packChunkVertex(int x, int y, int z, int u, int v,
+// Positions are in sixteenths of a block (full-cube corners land on multiples
+// of 16); UVs stay in block units. Both pack losslessly. Shared by the mesher
+// and the dropped-item cubes that reuse the chunk vertex format.
+[[nodiscard]] constexpr ChunkVertex packChunkVertex(int x16, int y16, int z16, int u, int v,
                                                     std::uint32_t data) noexcept {
     return ChunkVertex{
-        static_cast<std::uint32_t>(x) | (static_cast<std::uint32_t>(z) << 5) |
-            (static_cast<std::uint32_t>(y) << 10),
+        static_cast<std::uint32_t>(x16) | (static_cast<std::uint32_t>(z16) << 9) |
+            (static_cast<std::uint32_t>(y16) << 18),
         static_cast<std::uint32_t>(u) | (static_cast<std::uint32_t>(v) << 16),
         data,
     };

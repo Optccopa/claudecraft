@@ -37,6 +37,10 @@ public:
         float fogEnd;
         float skyLight; // 0..1 scale on the sky light channel
         std::optional<glm::ivec3> highlightedBlock;
+        // Block-local selection box (0..1 per axis); non-cube shapes shrink it
+        // so the wireframe hugs the rendered geometry instead of the full cell.
+        glm::vec3 highlightMin{0.0f};
+        glm::vec3 highlightMax{1.0f};
     };
 
     void render(const FrameParams& params);

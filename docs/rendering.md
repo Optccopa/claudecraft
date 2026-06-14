@@ -40,7 +40,7 @@ trick), all unpacked in the vertex shader. Uniforms:
 | `uSkyLight` | 0..1 scale on the vertex sky-light channel (`FrameParams::skyLight`) |
 | `uSunDir` | unit sun direction from `render/Sky` (`FrameParams::sunDirection`) |
 | `uAlpha` | 1.0 opaque pass, 0.65 water pass |
-| `uScale` / `uCenter` / `uLightScale` | 1 / 0 / 1 for chunk passes; `Renderer::drawDrops` shrinks the per-type 0..1 cube to 0.3, recenters it with `uCenter`=0.5, and feeds each drop's sampled cell light (see [gameplay.md](gameplay.md)) |
+| `uScale` / `uCenter` / `uLightScale` | 1 / 0 / 1 for chunk passes; `Renderer::drawDrops` shrinks the per-type one-block cube to 0.3, recenters it with `uCenter`=0.5 (block units, after the shader's ÷16), and feeds each drop's sampled cell light (see [gameplay.md](gameplay.md)) |
 
 Sky colour, sun direction and the sky-light scale all come from one
 `skyStateAt(timeOfDay)` call (see the day/night section of
@@ -58,7 +58,11 @@ channel — glowstone-lit cave walls ignore sun direction. No shadow maps.
 
 8×8 tiles, sampled `GL_NEAREST`, **no mipmaps** (hard requirement — see
 meshing doc). Tile ids live in `Block.cpp`'s table; tile 0 is bottom-left of
-the texture. Unassigned tiles render magenta on purpose.
+the texture. 25 tiles are assigned (0–20 cubes, 21–23 cactus side/top/bottom,
+24 `short_grass` for the tall-grass billboard); unassigned tiles render magenta
+on purpose. The chunk fragment shader `discard`s texels with alpha < 0.5 so the
+transparent cutout tiles (tall grass) render as billboards; opaque cube tiles
+ship alpha 1 and are never clipped.
 
 `TextureAtlas::create` source order:
 

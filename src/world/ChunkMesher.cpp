@@ -101,8 +101,10 @@ void emitQuad(ChunkMeshData& mesh, const FaceBasis& face, const std::array<int, 
             tile | (static_cast<std::uint32_t>(ao[i]) << 8) | (normalIndex << 10) |
             (static_cast<std::uint32_t>(cell.sky[corner]) << 13) |
             (static_cast<std::uint32_t>(cell.blockLight[corner]) << 17);
+        // Positions are emitted in sixteenths (full-cube corners are integers,
+        // so ×16 is exact); UVs stay in block units for the fract() atlas trick.
         mesh.vertices.push_back(packChunkVertex(
-            static_cast<int>(p[0]), static_cast<int>(p[1]), static_cast<int>(p[2]),
+            static_cast<int>(p[0]) * 16, static_cast<int>(p[1]) * 16, static_cast<int>(p[2]) * 16,
             static_cast<int>(p[static_cast<std::size_t>(face.texRight)]),
             static_cast<int>(p[static_cast<std::size_t>(face.texUp)]), data));
     }
@@ -144,8 +146,8 @@ void meshDirection(const MeshInput& input, const FaceBasis& face, ChunkMeshData&
                 p[static_cast<std::size_t>(face.vAxis)] = iv;
 
                 const BlockType block = input.at(p[0], p[1], p[2]);
-                if (block == BlockType::Air) {
-                    continue;
+                if (block == BlockType::Air || !isFullCube(block)) {
+                    continue; // non-cube shapes are emitted in a separate pass
                 }
                 const BlockType neighbor =
                     input.at(p[0] + normal[0], p[1] + normal[1], p[2] + normal[2]);
@@ -273,6 +275,146 @@ void meshDirection(const MeshInput& input, const FaceBasis& face, ChunkMeshData&
     }
 }
 
+struct ShapeVertex {
+    int x16, y16, z16; // sixteenths
+    int u, v;          // block-unit texcoords
+    std::uint8_t tile;
+};
+
+// Packs flat per-cell light + full AO; the caller supplies the normal index.
+[[nodiscard]] std::uint32_t shapeData(std::uint8_t tile, std::uint32_t normalIndex,
+                                      std::uint8_t sky, std::uint8_t block) noexcept {
+    return static_cast<std::uint32_t>(tile) | (3u << 8) | (normalIndex << 10) |
+           (static_cast<std::uint32_t>(sky) << 13) | (static_cast<std::uint32_t>(block) << 17);
+}
+
+void emitShapeQuad(ChunkMeshData& mesh, const std::array<ShapeVertex, 4>& quad,
+                   std::uint32_t normalIndex, std::uint8_t sky, std::uint8_t block,
+                   bool doubleSided) {
+    const auto baseIndex = static_cast<std::uint32_t>(mesh.vertices.size());
+    for (const ShapeVertex& vert : quad) {
+        mesh.vertices.push_back(packChunkVertex(vert.x16, vert.y16, vert.z16, vert.u, vert.v,
+                                                shapeData(vert.tile, normalIndex, sky, block)));
+    }
+    for (const std::uint32_t i : {0u, 1u, 2u, 0u, 2u, 3u}) {
+        mesh.indices.push_back(baseIndex + i);
+    }
+    if (doubleSided) {
+        for (const std::uint32_t i : {0u, 2u, 1u, 0u, 3u, 2u}) {
+            mesh.indices.push_back(baseIndex + i);
+        }
+    }
+}
+
+// Cross-plant billboard: two double-sided diagonal quads spanning the cell, so
+// blades show from every angle. Flat-lit from the plant's own cell; the +y
+// normal lets the sky term pick up overhead sun.
+void emitCrossPlant(ChunkMeshData& mesh, int lx, int ly, int lz, std::uint8_t tile,
+                    std::uint8_t sky, std::uint8_t block) {
+    const int x = lx * 16, y = ly * 16, z = lz * 16;
+    const std::array<std::array<ShapeVertex, 4>, 2> planes{{
+        {{{x, y, z, 0, 0, tile},
+          {x + 16, y, z + 16, 1, 0, tile},
+          {x + 16, y + 16, z + 16, 1, 1, tile},
+          {x, y + 16, z, 0, 1, tile}}},
+        {{{x + 16, y, z, 0, 0, tile},
+          {x, y, z + 16, 1, 0, tile},
+          {x, y + 16, z + 16, 1, 1, tile},
+          {x + 16, y + 16, z, 0, 1, tile}}},
+    }};
+    for (const auto& plane : planes) {
+        emitShapeQuad(mesh, plane, 2u, sky, block, true);
+    }
+}
+
+// Inset box (cactus): Minecraft's model — the four side planes are pulled in
+// `inset` sixteenths along their own normal but span the full cell on the
+// perpendicular axis, so they cross in a "+" and the texture's transparent
+// spike edges line up with the cell corners. Side faces always show; the
+// top/bottom cap (the inset square) is culled against an identical box or an
+// opaque neighbour above/below so a stacked column reads as one piece.
+void emitBox(ChunkMeshData& mesh, const MeshInput& input, int lx, int ly, int lz, BlockType type) {
+    const BlockInfo& info = blockInfo(type);
+    const std::uint8_t l = input.lightAt(lx, ly, lz);
+    const std::uint8_t sky = Chunk::skyLevel(l);
+    const std::uint8_t blk = Chunk::blockLevel(l);
+    const int ox = lx * 16, oy = ly * 16, oz = lz * 16;
+    const int a = info.inset, b = 16 - info.inset; // inset side planes
+    const std::uint8_t side = info.sideTile, top = info.topTile, bottom = info.bottomTile;
+
+    const std::array<ShapeVertex, 4> faceXPos{{{ox + b, oy, oz, 0, 0, side},
+                                               {ox + b, oy + 16, oz, 0, 1, side},
+                                               {ox + b, oy + 16, oz + 16, 1, 1, side},
+                                               {ox + b, oy, oz + 16, 1, 0, side}}};
+    const std::array<ShapeVertex, 4> faceXNeg{{{ox + a, oy, oz, 0, 0, side},
+                                               {ox + a, oy, oz + 16, 1, 0, side},
+                                               {ox + a, oy + 16, oz + 16, 1, 1, side},
+                                               {ox + a, oy + 16, oz, 0, 1, side}}};
+    const std::array<ShapeVertex, 4> faceZPos{{{ox, oy, oz + b, 0, 0, side},
+                                               {ox + 16, oy, oz + b, 1, 0, side},
+                                               {ox + 16, oy + 16, oz + b, 1, 1, side},
+                                               {ox, oy + 16, oz + b, 0, 1, side}}};
+    const std::array<ShapeVertex, 4> faceZNeg{{{ox, oy, oz + a, 0, 0, side},
+                                               {ox, oy + 16, oz + a, 0, 1, side},
+                                               {ox + 16, oy + 16, oz + a, 1, 1, side},
+                                               {ox + 16, oy, oz + a, 1, 0, side}}};
+    emitShapeQuad(mesh, faceXPos, 0u, sky, blk, false);
+    emitShapeQuad(mesh, faceXNeg, 1u, sky, blk, false);
+    emitShapeQuad(mesh, faceZPos, 4u, sky, blk, false);
+    emitShapeQuad(mesh, faceZNeg, 5u, sky, blk, false);
+
+    // Caps are the plus-shaped footprint of the crossed side planes: a full-x /
+    // inset-z strip and an inset-x / full-z strip. Their union covers the column
+    // and leaves only the four spike corners open, so the cap matches the sides
+    // (a single inset square would leave an open rim and clip the spike edges).
+    const BlockType above = input.at(lx, ly + 1, lz);
+    const BlockType below = input.at(lx, ly - 1, lz);
+    if (above != type && !occludes(above)) {
+        const std::array<ShapeVertex, 4> capXStrip{{{ox + a, oy + 16, oz, 0, 0, top},
+                                                    {ox + a, oy + 16, oz + 16, 0, 1, top},
+                                                    {ox + b, oy + 16, oz + 16, 1, 1, top},
+                                                    {ox + b, oy + 16, oz, 1, 0, top}}};
+        const std::array<ShapeVertex, 4> capZStrip{{{ox, oy + 16, oz + a, 0, 0, top},
+                                                    {ox, oy + 16, oz + b, 0, 1, top},
+                                                    {ox + 16, oy + 16, oz + b, 1, 1, top},
+                                                    {ox + 16, oy + 16, oz + a, 1, 0, top}}};
+        emitShapeQuad(mesh, capXStrip, 2u, sky, blk, false);
+        emitShapeQuad(mesh, capZStrip, 2u, sky, blk, false);
+    }
+    if (below != type && !occludes(below)) {
+        const std::array<ShapeVertex, 4> capXStrip{{{ox + a, oy, oz, 0, 0, bottom},
+                                                    {ox + b, oy, oz, 1, 0, bottom},
+                                                    {ox + b, oy, oz + 16, 1, 1, bottom},
+                                                    {ox + a, oy, oz + 16, 0, 1, bottom}}};
+        const std::array<ShapeVertex, 4> capZStrip{{{ox, oy, oz + a, 0, 0, bottom},
+                                                    {ox + 16, oy, oz + a, 1, 0, bottom},
+                                                    {ox + 16, oy, oz + b, 1, 1, bottom},
+                                                    {ox, oy, oz + b, 0, 1, bottom}}};
+        emitShapeQuad(mesh, capXStrip, 3u, sky, blk, false);
+        emitShapeQuad(mesh, capZStrip, 3u, sky, blk, false);
+    }
+}
+
+// Non-cube blocks (cross billboards, inset boxes) are emitted by this single
+// scan after the greedy cube passes, all into the opaque mesh.
+void meshSpecialShapes(const MeshInput& input, ChunkMeshData& opaque) {
+    for (int lx = 0; lx < Chunk::SizeX; ++lx) {
+        for (int lz = 0; lz < Chunk::SizeZ; ++lz) {
+            for (int ly = 0; ly < Chunk::SizeY; ++ly) {
+                const BlockType block = input.at(lx, ly, lz);
+                const BlockShape shape = blockInfo(block).shape;
+                if (shape == BlockShape::Cross) {
+                    const std::uint8_t l = input.lightAt(lx, ly, lz);
+                    emitCrossPlant(opaque, lx, ly, lz, blockInfo(block).sideTile,
+                                   Chunk::skyLevel(l), Chunk::blockLevel(l));
+                } else if (shape == BlockShape::Box) {
+                    emitBox(opaque, input, lx, ly, lz, block);
+                }
+            }
+        }
+    }
+}
+
 } // namespace
 
 ChunkMesher::Result ChunkMesher::build(const MeshInput& input) {
@@ -282,6 +424,7 @@ ChunkMesher::Result ChunkMesher::build(const MeshInput& input) {
     for (const FaceBasis& face : kFaces) {
         meshDirection(input, face, result.opaque, result.water);
     }
+    meshSpecialShapes(input, result.opaque);
     return result;
 }
 

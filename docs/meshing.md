@@ -52,19 +52,20 @@ with noisy tiles — revisit only if a directional texture is ever added.
 
 ## Vertex format (12 bytes, `ChunkVertex`)
 
-Greedy quads land on block edges, so every coordinate is a small exact
-integer — positions and UVs pack losslessly into two `uint32`s (`packChunkVertex`):
+Positions are in **sixteenths of a block** so non-full shapes (cactus, future
+slabs) can place sub-block vertices; full-cube corners are multiples of 16.
+Positions and UVs pack losslessly into two `uint32`s (`packChunkVertex`):
 
 | Offset | Field | Notes |
 |---|---|---|
-| 0 | `uint32 pos` | bits 0–4 x, 5–9 z (both 0..16), 10–18 y (0..256); chunk-local, shader adds `uChunkOrigin` |
+| 0 | `uint32 pos` | bits 0–8 x, 9–17 z (both 0..256 = 0..16 blocks), 18–30 y (0..4096 = 0..256 blocks); chunk-local sixteenths, shader divides by 16 then adds `uChunkOrigin` |
 | 4 | `uint32 uv` | bits 0–15 u, 16–31 v — **block-space**, runs 0..width / 0..height across a merged quad |
 | 8 | `uint32 data` | bits 0–7 atlas tile, 8–9 this corner's AO, 10–12 normal index, 13–16 sky light, 17–20 block light |
 
 All three are consumed via `glVertexAttribIPointer` (integer attributes); the
 vertex shader unpacks position/UV with shifts. The dropped-item cubes
-(`makeDropMeshData`) reuse this format with a 0..1 unit cube and the shader's
-`uCenter`=0.5 to recenter it before scaling.
+(`makeDropMeshData`) reuse this format with a 0..16 (one-block) cube and the
+shader's `uCenter`=0.5 to recenter it before scaling.
 
 Per-corner light is smoothed (4-cell average) and part of the mask equality —
 see [lighting.md](lighting.md). Quads only merge where AO **and** both light
@@ -88,6 +89,29 @@ mips would average across the `fract` discontinuity and across neighbouring
 tiles (bleed). If mipmapping is ever wanted, the atlas must become a texture
 array instead. Same constraint is why `TextureAtlas` never calls
 `glGenerateMipmap`.
+
+## Non-cube shapes (`BlockShape`)
+
+A block's `BlockInfo::shape` decides how it meshes. Only `Cube` goes through
+the greedy directional passes; everything else is skipped there (`isFullCube`)
+and emitted by one final `meshSpecialShapes` scan into the **opaque** mesh.
+All non-cube blocks are flat-lit from their own cell with full AO, packed via
+the shared `emitShapeQuad`/`shapeData` helpers, and are non-opaque (`occludes`
+is false) so neighbouring cubes still draw the faces they share with them.
+
+- **`Cross`** (tall grass): two diagonal quads spanning the cell, each emitted
+  **double-sided** (both index windings) so the blades show from every angle
+  under back-face culling. A `+y` normal lets the sky term pick up overhead
+  sun. The chunk fragment shader `discard`s texels with alpha < 0.5, so the
+  transparent area of the `short_grass` tile cuts out cleanly with depth
+  writes on and no sorting.
+- **`Box`** (cactus): a full-height column inset `BlockInfo::inset` sixteenths
+  on its four sides — the sub-block precision the sixteenth vertex grid exists
+  for. Side faces always emit; the top/bottom cap is culled against an
+  identical box or any opaque neighbour above/below, so a stacked column reads
+  as one piece and the bottom never z-fights the ground it rests on. The
+  selection wireframe scales to the box (`FrameParams::highlightMin/Max`);
+  collision still treats `Box` blocks as a full cell.
 
 ## Water pass
 
