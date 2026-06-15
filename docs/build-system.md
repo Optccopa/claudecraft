@@ -22,7 +22,7 @@ Key flags and why they're there:
 | `/std:c++20 /EHsc /permissive- /W4` | project standard; zero warnings is the bar |
 | `/MD` (both configs) | the prebuilt `glfw3.lib` is the /MD static flavor; mixing /MDd would emit CRT-mismatch link noise |
 | `/DNOMINMAX` | glad.h includes `<windows.h>`, whose `min`/`max` macros break `std::min`/`std::max` |
-| `/external:I third_party\... /external:W0` | third-party headers (glm, stb, glad, glfw) are exempt from /W4; our code is not |
+| `/external:I includes\... /external:W0` | third-party headers (glm, stb, glad, glfw) are exempt from /W4; our code is not |
 | `/MP` | parallel compile across TUs |
 | `/Zi /Od` vs `/O2 /DNDEBUG` | debug vs release; debug also requests a GL debug context at runtime |
 
@@ -34,17 +34,17 @@ cl errors on a wildcard with zero matches, so:
   `tasks.json` and the include path to `c_cpp_properties.json`.
 - A dir that loses its last `.cpp` must be removed from the wildcards.
 
-## Dependencies (`third_party/`, vendored, no package manager)
+## Dependencies (`includes/`, vendored, no package manager)
 
 | Lib | Form | Notes |
 |---|---|---|
 | GLFW 3.4 | headers + `lib/glfw3.lib` | static /MD build from the official `lib-vc2022` binaries; needs `gdi32 user32 shell32` at link |
 | Win32 system libs | OS | `Psapi.lib` for `GetProcessMemoryInfo` (the F3 overlay's `core/SystemStats`); the rest of its calls live in kernel32 |
 | GLAD | gl 4.5 compat + `GL_KHR_debug`, C source | generated loader; `glDebugMessageCallback` available when the driver exposes KHR_debug even on a 3.3 context |
-| GLM 1.0.1 | header-only | include root is `third_party/` itself (`<glm/...>`) |
+| GLM 1.0.1 | header-only | include root is `includes/` itself (`<glm/...>`) |
 | stb_image, stb_easy_font | single-header | `STB_IMAGE_IMPLEMENTATION` lives in `TextureAtlas.cpp` only; `core/ZipArchive.cpp` links its raw-inflate (`stbi_zlib_decode_noheader_buffer`) for resource-pack zips |
 
-Adding a header-only dep: drop it in `third_party/<name>/`, add an
+Adding a header-only dep: drop it in `includes/<name>/`, add an
 `/external:I` entry to both tasks + `c_cpp_properties.json`.
 
 ## Run requirements

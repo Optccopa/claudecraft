@@ -11,10 +11,10 @@
             "defines": ["NOMINMAX"],
             "includePath": [
                 "${workspaceFolder}/src",
-                "${workspaceFolder}/third_party/glad/include",
-                "${workspaceFolder}/third_party/glfw/include",
-                "${workspaceFolder}/third_party",
-                "${workspaceFolder}/third_party/stb"
+                "${workspaceFolder}/includes/glad/include",
+                "${workspaceFolder}/includes/glfw/include",
+                "${workspaceFolder}/includes",
+                "${workspaceFolder}/includes/stb"
             ]
         }
     ]
