@@ -8,6 +8,8 @@ Refer to .claude\skills\minecraftimprov\SKILL.md When writing any new code
 
 Write clean, production-ready C++. No AI slop. This is a real codebase a senior engineer would sign off on. If a line doesn't earn its place, delete it.
 
+## IMPORTANT NOTES
+- **Textures** Whenever implementing new textures you must attempt to use one found in the minecraft texture packs before attempting to create your own (Fallbacks from packs are still needed but go for packs first)
 ## Forbidden — "AI slop"
 
 - **Comments that restate code.** `i++; // increment i` is noise.
