@@ -10,7 +10,8 @@ namespace {
 // 5 water, 6 bark, 7 wood rings, 8 leaves, 9 plank, 10 snow, 11 bedrock,
 // 12 coal ore, 13 iron ore, 14 gold ore, 15 diamond ore, 16 glowstone,
 // 17 cherry bark, 18 cherry leaves, 19 spruce bark, 20 spruce leaves,
-// 21 cactus side, 22 cactus top, 23 cactus bottom, 24 short grass
+// 21 cactus side, 22 cactus top, 23 cactus bottom, 24 short grass,
+// 43 wool, 44 leather, 45 raw beef, 46 raw porkchop, 47 raw mutton
 using S = BlockShape;
 constexpr std::array<BlockInfo, static_cast<std::size_t>(BlockType::Count)> kBlocks{{
     {0, 0, 0, 0, false, false, false, false, S::Cube, 0, 0.0f}, // Air
@@ -35,6 +36,11 @@ constexpr std::array<BlockInfo, static_cast<std::size_t>(BlockType::Count)> kBlo
     {20, 20, 20, 0, true, true, true, true, S::Cube, 0, 0.2f},  // SpruceLeaves
     {22, 21, 23, 0, false, true, true, true, S::Box, 1, 0.4f},  // Cactus (inset column)
     {24, 24, 24, 0, false, false, true, false, S::Cross, 0, 0.0f}, // TallGrass (no drop)
+    {43, 43, 43, 0, true, true, true, true, S::Cube, 0, 0.8f},   // Wool
+    {44, 44, 44, 0, false, false, false, false, S::Cube, 0, 0.0f}, // Leather (item)
+    {45, 45, 45, 0, false, false, false, false, S::Cube, 0, 0.0f}, // RawBeef (item)
+    {46, 46, 46, 0, false, false, false, false, S::Cube, 0, 0.0f}, // RawPorkchop (item)
+    {47, 47, 47, 0, false, false, false, false, S::Cube, 0, 0.0f}, // RawMutton (item)
 }};
 
 // Exact Minecraft block ids: also the stem of the texture file each tile
@@ -44,7 +50,8 @@ constexpr std::array<std::string_view, static_cast<std::size_t>(BlockType::Count
     "water",     "oak_log",   "oak_leaves", "oak_planks",    "snow_block",
     "bedrock",   "coal_ore",  "iron_ore",   "gold_ore",      "diamond_ore",
     "glowstone", "cherry_log", "cherry_leaves", "spruce_log", "spruce_leaves",
-    "cactus",    "short_grass",
+    "cactus",    "short_grass", "white_wool",  "leather",       "beef",
+    "porkchop",  "mutton",
 };
 
 } // namespace

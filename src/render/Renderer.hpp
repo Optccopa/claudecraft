@@ -5,10 +5,12 @@
 #include "render/TextureAtlas.hpp"
 #include "world/ChunkCoord.hpp"
 #include "world/ChunkMesher.hpp"
+#include "world/Mob.hpp"
 
 #include <glm/mat4x4.hpp>
 #include <glm/vec3.hpp>
 
+#include <array>
 #include <cstddef>
 #include <filesystem>
 #include <optional>
@@ -53,6 +55,17 @@ public:
     // Call after render(): reuses the frame's chunk-shader state.
     void drawDrops(std::span<const DropDraw> drops);
 
+    struct MobDraw {
+        glm::vec3 position; // feet centre
+        float yaw;          // degrees; model +z faces this heading
+        MobType type;
+        float light;        // 0..1, sampled from the mob's cell
+        float hurt;         // 0..1 red-tint flash after taking damage
+    };
+    // Call after render(): uses the entity shader with the frame params cached
+    // by the last render() call.
+    void drawMobs(std::span<const MobDraw> mobs);
+
     // Block-breaking crack overlay on the targeted block (stage 0..9). Call
     // after render(); reuses the frame's chunk-shader state.
     void drawBlockBreak(const glm::ivec3& block, int stage);
@@ -65,6 +78,7 @@ public:
     // an empty span restores the built-in/procedural atlas. Main thread only.
     void setResourcePacks(std::span<const std::filesystem::path> packs) {
         m_atlas = TextureAtlas::create(packs);
+        loadMobTextures(packs);
     }
 
     [[nodiscard]] const TextureAtlas& atlas() const noexcept { return m_atlas; }
@@ -102,9 +116,14 @@ private:
     [[nodiscard]] const GpuMesh& dropMesh(BlockType type);
     [[nodiscard]] const GpuMesh& breakMesh(std::uint8_t tile);
     void detectGpu();
+    // Builds the per-type entity meshes (once) and loads their skins from the
+    // pack stack. Mobs whose skin a pack supplies render textured; the rest
+    // fall back to flat-shaded coloured boxes.
+    void loadMobTextures(std::span<const std::filesystem::path> packs);
 
     gl::ShaderProgram m_chunkShader;
     gl::ShaderProgram m_lineShader;
+    gl::ShaderProgram m_entityShader;
     TextureAtlas m_atlas;
     std::unordered_map<ChunkCoord, ChunkMeshes, ChunkCoordHash> m_chunks;
     std::unordered_map<BlockType, GpuMesh> m_dropMeshes; // built lazily per type
@@ -118,6 +137,32 @@ private:
     gl::Buffer m_highlightVbo;
     gl::VertexArray m_chunkBorderVao;
     gl::Buffer m_chunkBorderVbo;
+    gl::VertexArray m_mobCubeVao; // unit cube (pos+normal+uv) for flat-shaded boxes
+    gl::Buffer m_mobCubeVbo;
+
+    // Per-mob-type textured model: one mesh per texture layer plus its skin.
+    struct MobMesh {
+        gl::VertexArray vao;
+        gl::Buffer vbo;
+        GLsizei vertexCount = 0;
+    };
+    struct MobGpu {
+        MobMesh base;
+        MobMesh overlay;
+        gl::Texture2D baseTex;
+        gl::Texture2D overlayTex;
+        bool hasBase = false;
+        bool hasOverlay = false;
+    };
+    std::array<MobGpu, static_cast<std::size_t>(MobType::Count)> m_mobGpu;
+
+    // Frame params cached by render() so drawMobs (a separate shader) can reuse
+    // them without re-plumbing the view/fog/sun through the call site.
+    glm::mat4 m_frameViewProj{1.0f};
+    glm::vec3 m_frameFogColor{0.0f};
+    glm::vec3 m_frameSunDir{0.0f, 1.0f, 0.0f};
+    float m_frameFogStart = 0.0f;
+    float m_frameFogEnd = 0.0f;
 
     enum class VramSource { None, Nvx, Ati };
     const char* m_gpuName = "unknown";

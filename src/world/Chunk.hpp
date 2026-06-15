@@ -52,6 +52,7 @@ public:
         return m_fluid.data() + index(x, 0, z);
     }
     [[nodiscard]] std::array<BlockType, BlockCount>& blocksMutable() noexcept { return m_blocks; }
+    [[nodiscard]] std::array<std::uint8_t, BlockCount>& fluidMutable() noexcept { return m_fluid; }
 
     // Light is derived data (recomputed on load), packed sky | block << 4.
     // Same indexing as blocks, so light columns memcpy alongside block columns.

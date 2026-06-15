@@ -153,6 +153,16 @@ struct Rgba {
         }
         return shade(128, 128, 128, 1.0f - 0.2f * n);
     }
+    case 43: // wool: near-white with faint fleece speckle
+        return shade(234, 234, 232, 1.0f - 0.10f * n);
+    case 44: // leather: mid brown
+        return shade(150, 104, 64, speckle);
+    case 45: // raw beef: deep red with paler marbling
+        return shade(170, 64, 66, 1.0f - 0.22f * n);
+    case 46: // raw porkchop: pink with fat flecks
+        return shade(226, 150, 150, 1.0f - 0.18f * n);
+    case 47: // raw mutton: red-pink
+        return shade(196, 96, 92, 1.0f - 0.2f * n);
     default:
         return Rgba{255, 0, 255, 255}; // unassigned tiles scream magenta
     }
@@ -211,7 +221,7 @@ struct TileTex {
     const char* name;
     Tint tint;
 };
-constexpr std::array<TileTex, 25> kTileTextures{{
+constexpr std::array<TileTex, 26> kTileTextures{{
     {0, "stone", Tint::None},          {1, "dirt", Tint::None},
     {2, "grass_block_top", Tint::Grass}, {3, "grass_block_side", Tint::None},
     {4, "sand", Tint::None},           {5, "water_still", Tint::Water},
@@ -224,7 +234,21 @@ constexpr std::array<TileTex, 25> kTileTextures{{
     {18, "cherry_leaves", Tint::None}, {19, "spruce_log", Tint::None},
     {20, "spruce_leaves", Tint::Spruce}, {21, "cactus_side", Tint::None},
     {22, "cactus_top", Tint::None},    {23, "cactus_bottom", Tint::None},
-    {24, "short_grass", Tint::Grass},
+    {24, "short_grass", Tint::Grass},  {43, "white_wool", Tint::None},
+}};
+
+// Item-icon tiles, sourced from textures/item/ instead of block/. Each falls
+// back to its procedural tilePixel when no pack supplies it (see the atlas
+// build loop), so mob drops are never magenta.
+struct ItemTex {
+    int tile;
+    const char* name;
+};
+constexpr std::array<ItemTex, 4> kItemTextures{{
+    {44, "leather"},
+    {45, "beef"},
+    {46, "porkchop"},
+    {47, "mutton"},
 }};
 
 // A resource pack, either a .zip or an extracted directory. Resolves block
@@ -247,6 +271,23 @@ public:
     // Raw PNG bytes for a block texture stem, or nullopt if the pack lacks it.
     [[nodiscard]] std::optional<std::vector<unsigned char>> texture(const char* stem) const {
         for (const char* folder : {"block", "blocks"}) {
+            const std::string rel =
+                std::format("assets/minecraft/textures/{}/{}.png", folder, stem);
+            if (m_zip) {
+                if (auto bytes = m_zip->read(rel)) {
+                    return bytes;
+                }
+            } else if (auto bytes = readDirFile(m_dir / rel)) {
+                return bytes;
+            }
+        }
+        return std::nullopt;
+    }
+
+    // Raw PNG bytes for an item-icon stem, or nullopt if the pack lacks it.
+    // Resolves the modern (item/) and legacy (items/) folder names.
+    [[nodiscard]] std::optional<std::vector<unsigned char>> itemTexture(const char* stem) const {
+        for (const char* folder : {"item", "items"}) {
             const std::string rel =
                 std::format("assets/minecraft/textures/{}/{}.png", folder, stem);
             if (m_zip) {
@@ -442,12 +483,65 @@ constexpr std::array<GuiTex, 7> kGuiTextures{{
             blitTile(pixels, tileId, crack);
         }
     }
+    // Item icons (mob drops). Like the destroy stages, these always resolve: a
+    // pack lacking the item texture falls back to the procedural tile.
+    for (const ItemTex& it : kItemTextures) {
+        std::optional<std::array<Rgba, kTilePixels * kTilePixels>> tile;
+        for (const ResourcePack& pack : packs) {
+            if (const auto png = pack.itemTexture(it.name)) {
+                if ((tile = decodeTile(*png, Tint::None))) {
+                    break;
+                }
+            }
+        }
+        if (!tile) {
+            std::array<Rgba, kTilePixels * kTilePixels> proc{};
+            for (int py = 0; py < kTilePixels; ++py) {
+                for (int px = 0; px < kTilePixels; ++px) {
+                    proc[static_cast<std::size_t>(py) * kTilePixels + px] = tilePixel(it.tile, px, py);
+                }
+            }
+            tile = proc;
+        }
+        blitTile(pixels, it.tile, *tile);
+    }
     logInfo(std::format("texture atlas: {} packs, {} tiles loaded, {} missing (magenta){}",
                         packs.size(), loaded, missing, hasGuiIcons ? ", hud icons" : ""));
     return pixels;
 }
 
 } // namespace
+
+std::optional<PackImage> loadPackImage(std::span<const std::filesystem::path> packs,
+                                       std::string_view assetPath) {
+    const std::string path{assetPath};
+    for (const std::filesystem::path& packPath : packs) {
+        const auto pack = ResourcePack::open(packPath);
+        if (!pack) {
+            continue;
+        }
+        const auto png = pack->asset(path.c_str());
+        if (!png) {
+            continue;
+        }
+        int w = 0;
+        int h = 0;
+        int channels = 0;
+        stbi_set_flip_vertically_on_load(1); // PNG rows are top-down; GL wants bottom-up
+        const std::unique_ptr<stbi_uc, decltype(&stbi_image_free)> data{
+            stbi_load_from_memory(png->data(), static_cast<int>(png->size()), &w, &h, &channels, 4),
+            &stbi_image_free};
+        if (data == nullptr || w <= 0 || h <= 0) {
+            continue;
+        }
+        PackImage image;
+        image.width = w;
+        image.height = h;
+        image.rgba.assign(data.get(), data.get() + static_cast<std::size_t>(w) * h * 4);
+        return image;
+    }
+    return std::nullopt;
+}
 
 namespace resourcepacks {
 

@@ -1,8 +1,8 @@
 # Rendering
 
-GL 3.3 core, three shader pairs (`shaders/`): `chunk` (world geometry),
-`hud` (2D overlay), `lines` (block highlight). All GL state changes funnel
-through `Renderer` and `Hud` on the main thread.
+GL 3.3 core, four shader pairs (`shaders/`): `chunk` (world geometry),
+`entity` (mobs), `hud` (2D overlay), `lines` (block highlight). All GL state
+changes funnel through `Renderer` and `Hud` on the main thread.
 
 ## Frame composition
 
@@ -10,9 +10,17 @@ through `Renderer` and `Hud` on the main thread.
 clear (sky color == fog color, so fogged geometry vanishes seamlessly)
 opaque chunk pass     cull back, depth test+write, near-to-far (early-Z)
 water chunk pass      blend, depth write OFF, far-to-near chunk order
+drops + mobs          entity boxes / drop cubes, depth test+write
 block highlight       inflated line cube (no z-fight against faces)
 HUD                   one batched draw; depth + cull OFF, blend ON
 ```
+
+Mobs use a separate `entity` shader (`Renderer::drawMobs`). `render()` caches
+the frame's view-projection, fog, sun and sky-light; `drawMobs` reuses them so
+the call site stays a single span. Each mob is a set of flat-shaded coloured
+boxes (a shared centred unit cube with position+normal), transformed by one
+base matrix (translate to feet, rotate by yaw) plus a per-part centre offset
+and scale. See [mobs.md](mobs.md).
 
 Per-chunk frustum culling: Gribb/Hartmann plane extraction from the
 view-projection matrix, p-vertex AABB test against the full-height chunk box

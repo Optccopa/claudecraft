@@ -9,6 +9,7 @@
 #include "player/Inventory.hpp"
 #include "player/Player.hpp"
 #include "world/Drops.hpp"
+#include "world/Mobs.hpp"
 #include "render/Hud.hpp"
 #include "render/PostProcess.hpp"
 #include "render/Renderer.hpp"
@@ -74,6 +75,9 @@ private:
     void handleDeath();
     void updateDead(const glm::ivec2& fbSize);
     void drawDrops(const SkyState& sky);
+    void drawMobs(const SkyState& sky);
+    // Periodic passive-mob spawning around the player while exploring.
+    void updateMobSpawning(float dt);
     void drawDebugOverlay(const glm::ivec2& fbSize, const RaycastHit& target);
     void renderWorld(World& world, const glm::ivec2& fbSize, const glm::vec3& eye, float yawDeg,
                      float pitchDeg, float fogEnd, const SkyState& sky,
@@ -122,6 +126,9 @@ private:
 
     Inventory m_inventory;
     Drops m_drops;
+    Mobs m_mobs;
+    std::uint32_t m_mobRng = 0x9E3779B9u; // reseeded per world from its seed
+    float m_mobSpawnTimer = 0.0f;
     bool m_inventoryOpen = false;
     ItemStack m_held;       // stack picked up by the cursor in the inventory UI
     int m_heldFrom = -1;    // slot it came from (returned there on close)

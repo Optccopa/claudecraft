@@ -213,6 +213,9 @@ void Application::startGame(const WorldInfo& info) {
         }
     }
     m_drops.clear();
+    m_mobs.loadFrom(info.directory / "mobs.dat");
+    m_mobRng = static_cast<std::uint32_t>(info.seed) | 1u; // keep the stream non-zero
+    m_mobSpawnTimer = 3.0f;
     m_inventoryOpen = false;
     m_held = ItemStack{};
     m_miningProgress = 0.0f;
@@ -343,6 +346,7 @@ void Application::saveWorldMeta() {
     m_currentWorld.exhaustion = m_player.exhaustion();
     m_currentWorld.air = m_player.air();
     worldlist::saveMeta(m_currentWorld);
+    m_mobs.saveTo(m_currentWorld.directory / "mobs.dat");
     if (!m_held.empty()) {
         m_inventory.add(m_held.type, m_held.count);
         m_held = ItemStack{};
@@ -411,6 +415,27 @@ void Application::handleGameplayInput(float frameDt, const RaycastHit& target) {
 void Application::handleBlockEdits(float frameDt, const RaycastHit& target) {
     const bool survival = m_currentWorld.mode == GameMode::Survival;
 
+    // Melee: a fresh left-click that lands on a mob hits it instead of mining.
+    // Hand damage is tuned for playable fights rather than vanilla's 1 point.
+    if (m_input.wasMousePressed(GLFW_MOUSE_BUTTON_LEFT)) {
+        const glm::vec3 eye = m_player.eyePosition(1.0f);
+        const glm::vec3 dir = Camera::direction(m_player.yaw(), m_player.pitch());
+        std::vector<Mobs::Loot> loot;
+        if (m_mobs.attack(eye, dir, m_settings.reach, 4.0f, m_mobRng, loot)) {
+            for (const Mobs::Loot& l : loot) {
+                const glm::ivec3 cell{static_cast<int>(std::floor(l.position.x)),
+                                      static_cast<int>(std::floor(l.position.y)),
+                                      static_cast<int>(std::floor(l.position.z))};
+                for (int i = 0; i < l.count; ++i) {
+                    m_drops.spawn(cell, l.type, scatterHash(cell) + static_cast<std::uint32_t>(i) * 0x9E3779B9u);
+                }
+            }
+            m_player.addExhaustion(0.1f); // attacking costs hunger, like vanilla
+            m_miningProgress = 0.0f;
+            return;
+        }
+    }
+
     // Breaking. Creative: instant with a hold-repeat cooldown. Survival:
     // hold to mine — progress accumulates against the block's hardness and
     // resets when the target changes or the button is released.
@@ -455,7 +480,7 @@ void Application::handleBlockEdits(float frameDt, const RaycastHit& target) {
     }
     // Both modes place from the hotbar stack; only survival consumes it.
     const ItemStack& stack = m_inventory.slot(m_selectedSlot);
-    if (stack.empty()) {
+    if (stack.empty() || isItem(stack.type)) {
         return;
     }
     if (m_world->setBlock(target.previous, stack.type)) {
@@ -612,12 +637,14 @@ void Application::updatePlaying(float frameDt, const glm::ivec2& fbSize, double&
     accumulator += frameDt;
     while (accumulator >= kFixedDt) {
         m_player.fixedUpdate(static_cast<float>(kFixedDt), *m_world);
+        m_mobs.update(static_cast<float>(kFixedDt), *m_world, m_mobRng);
         for (const BlockType picked :
              m_drops.update(static_cast<float>(kFixedDt), *m_world, m_player.position())) {
             m_inventory.add(picked, 1);
         }
         accumulator -= kFixedDt;
     }
+    updateMobSpawning(frameDt);
 
     if (m_player.dead()) {
         handleDeath();
@@ -642,6 +669,7 @@ void Application::updatePlaying(float frameDt, const glm::ivec2& fbSize, double&
                 fogEndFor(m_settings.renderDistance), sky,
                 target.hit ? std::optional<glm::ivec3>{target.block} : std::nullopt);
     drawDrops(sky);
+    drawMobs(sky);
     // Block-breaking crack overlay, advancing through the destroy stages as
     // mining progresses (replaces the old progress bar). Captured before the
     // underwater composite so it tints with the rest of the scene.
@@ -805,6 +833,50 @@ void Application::drawDrops(const SkyState& sky) {
         });
     }
     m_renderer.drawDrops(draws);
+}
+
+void Application::drawMobs(const SkyState& sky) {
+    const auto mobs = m_mobs.all();
+    if (mobs.empty()) {
+        return;
+    }
+    std::vector<Renderer::MobDraw> draws;
+    draws.reserve(mobs.size());
+    for (const MobEntity& mob : mobs) {
+        // Sample at torso height: the feet cell is the solid block the mob
+        // stands on, which carries no sky light and would render it black.
+        const float torso = mob.position.y + mobInfo(mob.type).height * 0.5f;
+        const glm::ivec3 cell{static_cast<int>(std::floor(mob.position.x)),
+                              static_cast<int>(std::floor(torso)),
+                              static_cast<int>(std::floor(mob.position.z))};
+        const std::uint8_t packed = m_world->lightPackedAt(cell);
+        const float skyPart = static_cast<float>(Chunk::skyLevel(packed)) / 15.0f * sky.skyLight;
+        const float blockPart = static_cast<float>(Chunk::blockLevel(packed)) / 15.0f;
+        draws.push_back(Renderer::MobDraw{mob.position, mob.yaw, mob.type,
+                                          std::max({skyPart, blockPart, 0.06f}), mob.hurtFlash});
+    }
+    m_renderer.drawMobs(draws);
+}
+
+void Application::updateMobSpawning(float dt) {
+    // Passive trickle: every few seconds, if the local population is thin, try
+    // to drop one small herd of a random species on nearby grass.
+    constexpr float kSpawnInterval = 8.0f;
+    constexpr std::size_t kNearbyCap = 16;
+    m_mobSpawnTimer -= dt;
+    if (m_mobSpawnTimer > 0.0f) {
+        return;
+    }
+    m_mobSpawnTimer = kSpawnInterval;
+    m_mobs.cullDistant(m_player.position(), 110.0f);
+    if (m_mobs.count() >= kNearbyCap) {
+        return;
+    }
+    const auto species = static_cast<MobType>((m_mobRng >> 8) % 3u);
+    const float angle = static_cast<float>(m_mobRng % 360u) * 0.01745329f;
+    const glm::vec3 at = m_player.position() +
+                         glm::vec3{std::cos(angle), 0.0f, std::sin(angle)} * 40.0f;
+    m_mobs.spawnHerd(*m_world, at, species, 4, m_mobRng);
 }
 
 void Application::drawInventoryUi(const glm::ivec2& fbSize) {

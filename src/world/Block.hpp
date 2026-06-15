@@ -29,6 +29,13 @@ enum class BlockType : std::uint8_t {
     SpruceLeaves,
     Cactus,
     TallGrass,
+    Wool,
+    // Item-only ids (mob drops) — never placed as blocks, see isItem. They still
+    // carry tiles so they render as dropped cubes and hotbar icons.
+    Leather,
+    RawBeef,
+    RawPorkchop,
+    RawMutton,
     Count
 };
 
@@ -57,6 +64,13 @@ struct BlockInfo {
 
 [[nodiscard]] constexpr bool isAir(BlockType type) noexcept {
     return type == BlockType::Air;
+}
+
+// Inventory-only ids: mob drops that are items, not blocks. They never enter
+// the voxel grid (placement is suppressed) and exist only as drops/stacks.
+[[nodiscard]] constexpr bool isItem(BlockType type) noexcept {
+    return type == BlockType::Leather || type == BlockType::RawBeef ||
+           type == BlockType::RawPorkchop || type == BlockType::RawMutton;
 }
 
 // Flowing liquids (water now, lava later) — simulated by FluidSim with a

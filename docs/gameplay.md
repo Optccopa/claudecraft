@@ -66,6 +66,10 @@ drawn with `uScale 0.3` and the drop's cell light passed via `uLightScale`
 (vertex light is baked full-bright block-channel so sun/sky scaling doesn't
 double-apply). A small sine bob is added on the CPU.
 
+Some drop ids are items, not blocks — the mob meats and leather (`isItem`).
+They carry tiles so they render as drops and hotbar icons but block placement
+is suppressed for them. See [mobs.md](mobs.md) for combat and mob drops.
+
 ## Adding a block type
 
 1. Append to `BlockType` (never reorder — ids are serialized raw).

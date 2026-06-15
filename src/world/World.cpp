@@ -291,11 +291,14 @@ void World::scheduleGeneration(ChunkCoord center) {
         m_pendingGen.insert(coord);
         submitTracked([this, coord] {
             auto chunk = m_save.tryLoad(coord);
-            if (chunk == nullptr) {
+            const bool generated = chunk == nullptr;
+            if (generated) {
                 chunk = m_generator.generate(coord);
+                // Loaded chunks already carry their fluid (restored or primed by
+                // tryLoad); only freshly generated terrain needs sources primed.
+                chunk->primeFluidSources();
             }
             LightEngine::initializeChunkLight(*chunk);
-            chunk->primeFluidSources();
             m_genResults.push(GenResult{coord, std::move(chunk)});
         });
     }

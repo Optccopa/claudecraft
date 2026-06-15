@@ -4,8 +4,10 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace cc {
@@ -47,6 +49,19 @@ private:
     gl::Texture2D m_texture;
     bool m_hasGuiIcons = false;
 };
+
+// Decoded RGBA8 image, rows bottom-up (GL texture order). Used for assets that
+// need their own texture rather than an atlas tile (entity skins).
+struct PackImage {
+    std::vector<std::uint8_t> rgba;
+    int width = 0;
+    int height = 0;
+};
+
+// First pack in the stack (highest priority first) that supplies
+// textures/<assetPath>.png, decoded to RGBA8, or nullopt if none do.
+[[nodiscard]] std::optional<PackImage> loadPackImage(
+    std::span<const std::filesystem::path> packs, std::string_view assetPath);
 
 namespace resourcepacks {
 
