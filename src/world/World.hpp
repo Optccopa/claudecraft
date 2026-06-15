@@ -5,6 +5,7 @@
 #include "world/Chunk.hpp"
 #include "world/ChunkCoord.hpp"
 #include "world/ChunkMesher.hpp"
+#include "world/FluidSim.hpp"
 #include "world/LightEngine.hpp"
 #include "world/TerrainGenerator.hpp"
 #include "world/WorldSave.hpp"
@@ -70,9 +71,16 @@ public:
         m_allLoaded = false; // a larger ring needs a fresh generation scan
     }
 
-    // Queues a chunk for remeshing. Public so the light engine can report the
-    // chunks its relight pass touched without re-scanning every loaded chunk.
-    void markMeshDirty(ChunkCoord coord) { m_dirtyMesh.insert(coord); }
+    // Queues a chunk for remeshing: records it in the dirty set and bumps its
+    // mesh revision so scheduleMeshing actually rebuilds it (the revision is
+    // what the schedule/stale-result protocol keys on). Public so the light and
+    // fluid engines can report the chunks they touched.
+    void markMeshDirty(ChunkCoord coord) {
+        m_dirtyMesh.insert(coord);
+        if (Chunk* chunk = chunkAt(coord)) {
+            chunk->bumpMeshRevision();
+        }
+    }
     // Remeshes every loaded chunk when the value actually changes.
     void setSmoothLighting(bool smooth) noexcept;
     [[nodiscard]] std::size_t loadedChunkCount() const noexcept { return m_chunks.size(); }
@@ -113,6 +121,11 @@ private:
     TerrainGenerator m_generator;
     WorldSave m_save;
     LightEngine m_lightEngine;
+    FluidSim m_fluidSim;
+    // Liquid advances one ring per this many update()s (~0.25 s at 60 fps),
+    // matching Minecraft's 1 block / 5 game ticks.
+    static constexpr int kFluidUpdateInterval = 15;
+    int m_fluidTickCounter = 0;
     ThreadPool& m_pool;
     int m_renderDistance;
     bool m_smoothLighting = true;

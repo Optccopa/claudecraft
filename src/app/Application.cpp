@@ -76,6 +76,28 @@ constexpr std::array<BindRow, 10> kBindRows{{
     return broken == BlockType::Grass ? BlockType::Dirt : broken;
 }
 
+// Nearest dry-land column to (0,0): spiral out by Chebyshev rings until a
+// surface sits above sea level (so it has open air above for the player), then
+// stand on top of it. Uses the generator directly so it works before the
+// spawn chunk has streamed in.
+[[nodiscard]] glm::vec3 computeSpawn(const TerrainGenerator& gen) noexcept {
+    for (int r = 0; r <= 96; ++r) {
+        for (int dx = -r; dx <= r; ++dx) {
+            for (int dz = -r; dz <= r; ++dz) {
+                if (std::max(std::abs(dx), std::abs(dz)) != r) {
+                    continue; // walk only the ring at radius r
+                }
+                const int h = gen.surfaceHeight(dx, dz);
+                if (h > TerrainGenerator::SeaLevel) {
+                    return glm::vec3{static_cast<float>(dx) + 0.5f, static_cast<float>(h) + 2.0f,
+                                     static_cast<float>(dz) + 0.5f};
+                }
+            }
+        }
+    }
+    return glm::vec3{0.5f, static_cast<float>(gen.surfaceHeight(0, 0)) + 2.0f, 0.5f};
+}
+
 [[nodiscard]] std::uint32_t scatterHash(const glm::ivec3& cell) noexcept {
     return static_cast<std::uint32_t>(cell.x) * 73856093u ^
            static_cast<std::uint32_t>(cell.y) * 19349663u ^
@@ -162,9 +184,18 @@ void Application::startGame(const WorldInfo& info) {
     m_world = std::make_unique<World>(info.seed, m_settings.renderDistance, m_pool,
                                       info.directory);
     m_world->setSmoothLighting(m_settings.smoothLighting);
-    const float spawnY = static_cast<float>(m_world->generator().surfaceHeight(8, 8)) + 2.5f;
-    m_player = Player{glm::vec3{8.5f, spawnY, 8.5f}};
+    m_worldSpawn = computeSpawn(m_world->generator()); // nearest open land to 0,0
+    const glm::vec3 start = info.hasPlayer
+                                ? glm::vec3{info.playerX, info.playerY, info.playerZ}
+                                : m_worldSpawn;
+    m_player = Player{start};
+    if (info.hasPlayer) {
+        m_player.setLook(info.yaw, info.pitch);
+        m_player.restoreVitals(info.health, info.hunger, info.saturation, info.exhaustion,
+                               info.air);
+    }
     m_player.setSpeedMultiplier(m_settings.playerSpeed);
+    m_player.setSurvival(info.mode == GameMode::Survival);
     m_currentWorld = info;
     m_worldTime = info.timeOfDay;
 
@@ -295,6 +326,18 @@ void Application::saveWorldMeta() {
         return;
     }
     m_currentWorld.timeOfDay = m_worldTime;
+    const glm::vec3 pos = m_player.position();
+    m_currentWorld.hasPlayer = true;
+    m_currentWorld.playerX = pos.x;
+    m_currentWorld.playerY = pos.y;
+    m_currentWorld.playerZ = pos.z;
+    m_currentWorld.yaw = m_player.yaw();
+    m_currentWorld.pitch = m_player.pitch();
+    m_currentWorld.health = m_player.health();
+    m_currentWorld.hunger = m_player.hunger();
+    m_currentWorld.saturation = m_player.saturation();
+    m_currentWorld.exhaustion = m_player.exhaustion();
+    m_currentWorld.air = m_player.air();
     worldlist::saveMeta(m_currentWorld);
     if (!m_held.empty()) {
         m_inventory.add(m_held.type, m_held.count);
@@ -382,6 +425,7 @@ void Application::handleBlockEdits(float frameDt, const RaycastHit& target) {
                 if (const BlockType drop = dropTypeFor(type); drop != BlockType::Air) {
                     m_drops.spawn(target.block, drop, scatterHash(target.block));
                 }
+                m_player.addExhaustion(0.005f);
                 m_miningProgress = 0.0f;
             }
         } else {
@@ -571,25 +615,49 @@ void Application::updatePlaying(float frameDt, const glm::ivec2& fbSize, double&
         accumulator -= kFixedDt;
     }
 
+    if (m_player.dead()) {
+        handleDeath();
+        return;
+    }
+
     const SkyState sky = skyStateAt(m_worldTime);
     const float alpha = static_cast<float>(accumulator / kFixedDt);
-    renderWorld(*m_world, fbSize, m_player.eyePosition(alpha), m_player.yaw(), m_player.pitch(),
+    const glm::vec3 renderEye = m_player.eyePosition(alpha);
+
+    // Submerged camera: capture the world to an offscreen target and resolve it
+    // through the underwater warp/tint. Dry, the world draws straight to screen.
+    m_renderClock += frameDt;
+    const glm::ivec3 eyeCell{static_cast<int>(std::floor(renderEye.x)),
+                             static_cast<int>(std::floor(renderEye.y)),
+                             static_cast<int>(std::floor(renderEye.z))};
+    const bool underwater = isLiquid(m_world->blockAt(eyeCell));
+    if (underwater) {
+        m_post.begin(fbSize);
+    }
+    renderWorld(*m_world, fbSize, renderEye, m_player.yaw(), m_player.pitch(),
                 fogEndFor(m_settings.renderDistance), sky,
                 target.hit ? std::optional<glm::ivec3>{target.block} : std::nullopt);
     drawDrops(sky);
+    // Block-breaking crack overlay, advancing through the destroy stages as
+    // mining progresses (replaces the old progress bar). Captured before the
+    // underwater composite so it tints with the rest of the scene.
+    if (survival && m_miningProgress > 0.0f && target.hit) {
+        const float hardness = blockInfo(m_world->blockAt(target.block)).hardness;
+        const float frac = std::clamp(m_miningProgress / std::max(hardness, 0.01f), 0.0f, 1.0f);
+        const int stage = std::min(static_cast<int>(frac * TextureAtlas::DestroyStageCount),
+                                   TextureAtlas::DestroyStageCount - 1);
+        m_renderer.drawBlockBreak(target.block, stage);
+    }
+    if (underwater) {
+        m_post.composite(static_cast<float>(m_renderClock));
+    }
 
     m_hud.crosshair(fbSize);
 
     m_hud.hotbar(fbSize, m_selectedSlot, m_inventory.hotbar(), survival);
 
-    // Mining feedback: a progress bar just above the crosshair.
-    if (survival && m_miningProgress > 0.0f && target.hit) {
-        const float hardness = blockInfo(m_world->blockAt(target.block)).hardness;
-        const float frac = std::clamp(m_miningProgress / std::max(hardness, 0.01f), 0.0f, 1.0f);
-        const float cx = static_cast<float>(fbSize.x) * 0.5f;
-        const float cy = static_cast<float>(fbSize.y) * 0.5f + 24.0f;
-        m_hud.rect(cx - 42.0f, cy, 84.0f, 8.0f, Hud::RectStyle::Dim);
-        m_hud.rect(cx - 40.0f, cy + 2.0f, 80.0f * frac, 4.0f, Hud::RectStyle::Bright);
+    if (survival) {
+        drawSurvivalStatus(fbSize, underwater);
     }
 
     if (m_inventoryOpen) {
@@ -597,6 +665,116 @@ void Application::updatePlaying(float frameDt, const glm::ivec2& fbSize, double&
     }
     if (m_showDebug) {
         drawDebugOverlay(fbSize, target);
+    }
+}
+
+// Vanilla-style status pips above the hotbar: hearts fill left-to-right,
+// hunger right-to-left, and air bubbles appear over the hearts while diving.
+void Application::drawSurvivalStatus(const glm::ivec2& fbSize, bool submerged) {
+    constexpr float kPip = 16.0f;
+    constexpr float kStep = 18.0f;
+    const float cx = static_cast<float>(fbSize.x) * 0.5f;
+    const float rowY = 70.0f; // just above the 48px hotbar (bottom 16)
+    const float leftX = cx - 232.0f;
+    const float rightX = cx + 232.0f - kPip;
+    const bool gui = m_renderer.atlas().hasGuiIcons();
+
+    for (int i = 0; i < 10; ++i) {
+        const float x = leftX + static_cast<float>(i) * kStep;
+        const float v = m_player.health() - static_cast<float>(i) * 2.0f;
+        if (gui) {
+            m_hud.icon(x, rowY, kPip, TextureAtlas::HeartBgTile);
+            if (v >= 2.0f) {
+                m_hud.icon(x, rowY, kPip, TextureAtlas::HeartFullTile);
+            } else if (v >= 1.0f) {
+                m_hud.icon(x, rowY, kPip, TextureAtlas::HeartHalfTile);
+            }
+        } else {
+            m_hud.coloredRect(x, rowY, kPip, kPip, Hud::HeartEmpty);
+            if (v >= 2.0f) {
+                m_hud.coloredRect(x, rowY, kPip, kPip, Hud::HeartFull);
+            } else if (v >= 1.0f) {
+                m_hud.coloredRect(x, rowY, kPip * 0.5f, kPip, Hud::HeartFull);
+            }
+        }
+    }
+    for (int i = 0; i < 10; ++i) {
+        const float x = rightX - static_cast<float>(i) * kStep;
+        const float v = m_player.hunger() - static_cast<float>(i) * 2.0f;
+        if (gui) {
+            m_hud.icon(x, rowY, kPip, TextureAtlas::FoodBgTile);
+            if (v >= 2.0f) {
+                m_hud.icon(x, rowY, kPip, TextureAtlas::FoodFullTile);
+            } else if (v >= 1.0f) {
+                m_hud.icon(x, rowY, kPip, TextureAtlas::FoodHalfTile);
+            }
+        } else {
+            m_hud.coloredRect(x, rowY, kPip, kPip, Hud::HungerEmpty);
+            if (v >= 2.0f) {
+                m_hud.coloredRect(x, rowY, kPip, kPip, Hud::HungerFull);
+            } else if (v >= 1.0f) {
+                m_hud.coloredRect(x, rowY, kPip * 0.5f, kPip, Hud::HungerFull);
+            }
+        }
+    }
+    if (submerged && m_player.air() < 0.999f) {
+        const int bubbles = static_cast<int>(std::ceil(m_player.air() * 10.0f));
+        for (int i = 0; i < bubbles; ++i) {
+            const float x = leftX + static_cast<float>(i) * kStep;
+            if (gui) {
+                m_hud.icon(x, rowY + kStep, kPip, TextureAtlas::AirTile);
+            } else {
+                m_hud.coloredRect(x, rowY + kStep, kPip, kPip, Hud::AirBubble);
+            }
+        }
+    }
+}
+
+void Application::handleDeath() {
+    const glm::vec3 pos = m_player.position();
+    const glm::ivec3 cell{static_cast<int>(std::floor(pos.x)), static_cast<int>(std::floor(pos.y)),
+                          static_cast<int>(std::floor(pos.z))};
+    std::uint32_t salt = 0;
+    const auto dropStack = [&](ItemStack& stack) {
+        for (int i = 0; i < stack.count; ++i) {
+            m_drops.spawn(cell, stack.type, scatterHash(cell) + salt++ * 0x9E3779B9u);
+        }
+        stack = ItemStack{};
+    };
+    for (int i = 0; i < Inventory::Size; ++i) {
+        if (!m_inventory.slot(i).empty()) {
+            dropStack(m_inventory.slot(i));
+        }
+    }
+    if (!m_held.empty()) {
+        dropStack(m_held);
+    }
+    m_inventoryOpen = false;
+    m_state = GameState::Dead;
+    m_window.setCursorCaptured(false);
+}
+
+void Application::updateDead(const glm::ivec2& fbSize) {
+    // The world stays visible (frozen) behind a dark wash and the death prompt.
+    renderWorld(*m_world, fbSize, m_player.eyePosition(1.0f), m_player.yaw(), m_player.pitch(),
+                fogEndFor(m_settings.renderDistance), skyStateAt(m_worldTime), std::nullopt);
+
+    const auto width = static_cast<float>(fbSize.x);
+    const auto height = static_cast<float>(fbSize.y);
+    m_hud.rect(0.0f, 0.0f, width, height, Hud::RectStyle::Dim);
+
+    const float titleScale = 6.0f;
+    const float titleW = Hud::textWidth("YOU DIED", titleScale);
+    m_hud.text(width * 0.5f - titleW * 0.5f, height * 0.68f, titleScale, "YOU DIED");
+
+    if (button(fbSize, width * 0.5f, height * 0.42f, "RESPAWN")) {
+        m_player.respawn(m_worldSpawn);
+        m_state = GameState::Playing;
+        m_window.setCursorCaptured(true);
+        return;
+    }
+    if (button(fbSize, width * 0.5f, height * 0.42f - kButtonHeight - 18.0f, "QUIT TO MENU")) {
+        enterMenu();
     }
 }
 
@@ -1166,6 +1344,8 @@ void Application::run() {
                     leaveSettings();
                 }
                 break;
+            case GameState::Dead:
+                break; // must click respawn
             }
         }
 
@@ -1186,6 +1366,9 @@ void Application::run() {
                 break;
             case GameState::Settings:
                 updateSettings(static_cast<float>(frameDt), fbSize);
+                break;
+            case GameState::Dead:
+                updateDead(fbSize);
                 break;
             }
 

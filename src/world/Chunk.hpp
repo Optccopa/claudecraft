@@ -45,6 +45,12 @@ public:
     [[nodiscard]] const std::array<BlockType, BlockCount>& blocks() const noexcept {
         return m_blocks;
     }
+    [[nodiscard]] const std::array<std::uint8_t, BlockCount>& fluidLevels() const noexcept {
+        return m_fluid;
+    }
+    [[nodiscard]] const std::uint8_t* fluidColumn(int x, int z) const noexcept {
+        return m_fluid.data() + index(x, 0, z);
+    }
     [[nodiscard]] std::array<BlockType, BlockCount>& blocksMutable() noexcept { return m_blocks; }
 
     // Light is derived data (recomputed on load), packed sky | block << 4.
@@ -71,6 +77,24 @@ public:
         return static_cast<std::uint8_t>(sky | (block << 4));
     }
 
+    // Fluid level per cell: 0 = none, 1..7 = flowing strength (7 strongest),
+    // 8 = source. Transient — only sources persist (as the liquid block); the
+    // sim re-derives flowing levels on load. See [[fluid]] doc.
+    [[nodiscard]] std::uint8_t fluidAt(int x, int y, int z) const noexcept {
+        return m_fluid[static_cast<std::size_t>(index(x, y, z))];
+    }
+    void setFluid(int x, int y, int z, std::uint8_t level) noexcept {
+        m_fluid[static_cast<std::size_t>(index(x, y, z))] = level;
+    }
+
+    // Every persisted liquid block is a source (flowing levels aren't saved);
+    // seed the transient level array from the blocks after generation/load.
+    void primeFluidSources() noexcept {
+        for (std::size_t i = 0; i < m_blocks.size(); ++i) {
+            m_fluid[i] = isLiquid(m_blocks[i]) ? std::uint8_t{8} : std::uint8_t{0};
+        }
+    }
+
     [[nodiscard]] ChunkCoord coord() const noexcept { return m_coord; }
 
     [[nodiscard]] bool isModified() const noexcept { return m_modified; }
@@ -89,6 +113,7 @@ public:
 private:
     std::array<BlockType, BlockCount> m_blocks{};
     std::array<std::uint8_t, BlockCount> m_light{};
+    std::array<std::uint8_t, BlockCount> m_fluid{};
     ChunkCoord m_coord;
     bool m_modified = false;
     std::uint32_t m_meshRevision = 1;

@@ -115,9 +115,12 @@ bool World::setBlock(const glm::ivec3& p, BlockType type) {
         return false;
     }
     chunk->set(lx, p.y, lz, type);
+    // A placed liquid is a source; any other block clears the cell's level.
+    chunk->setFluid(lx, p.y, lz, type == BlockType::Water ? FluidSim::Source : std::uint8_t{0});
     chunk->markModified();
     bumpMeshRevisionsAround(*chunk, lx, lz);
     m_lightEngine.onBlockChanged(*this, p, oldType);
+    m_fluidSim.onBlockChanged(p);
     return true;
 }
 
@@ -214,6 +217,8 @@ std::shared_ptr<const MeshInput> World::makeMeshInput(const Chunk& center) {
                         Chunk::SizeY * sizeof(BlockType));
             std::memcpy(input->light.data() + dst, chunk->lightColumn(wx & 15, wz & 15),
                         Chunk::SizeY);
+            std::memcpy(input->fluid.data() + dst, chunk->fluidColumn(wx & 15, wz & 15),
+                        Chunk::SizeY);
         }
     }
     return input;
@@ -225,6 +230,10 @@ WorldUpdate World::update(const glm::vec3& playerPos) {
     WorldUpdate out;
     integrateGenerated(out, center);
     unloadDistant(out, center);
+    if (++m_fluidTickCounter >= kFluidUpdateInterval) {
+        m_fluidTickCounter = 0;
+        m_fluidSim.tick(*this);
+    }
     scheduleGeneration(center);
     scheduleMeshing(center);
     drainMeshResults(out);
@@ -244,6 +253,7 @@ void World::integrateGenerated(WorldUpdate& out, ChunkCoord center) {
         m_chunks.emplace(result.coord, std::move(result.chunk));
         markMeshDirty(result.coord);
         m_lightEngine.onChunkLoaded(*this, result.coord);
+        m_fluidSim.onChunkLoaded(*this, result.coord);
     }
 }
 
@@ -285,6 +295,7 @@ void World::scheduleGeneration(ChunkCoord center) {
                 chunk = m_generator.generate(coord);
             }
             LightEngine::initializeChunkLight(*chunk);
+            chunk->primeFluidSources();
             m_genResults.push(GenResult{coord, std::move(chunk)});
         });
     }

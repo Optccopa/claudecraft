@@ -29,7 +29,18 @@ public:
     void beginFrame() noexcept { m_scratch.clear(); }
 
     void rect(float x, float y, float w, float h, RectStyle style);
+    // Flat-coloured quad from a small palette (health/hunger/air pips). The
+    // palette lives in the fragment shader; see ColorIndex.
+    void coloredRect(float x, float y, float w, float h, std::uint8_t color);
     void icon(float x, float y, float size, std::uint8_t tile);
+
+    enum ColorIndex : std::uint8_t {
+        HeartFull = 0,
+        HeartEmpty = 1,
+        HungerFull = 2,
+        HungerEmpty = 3,
+        AirBubble = 4,
+    };
     // yTop is the top edge of the text block (text grows downward).
     void text(float x, float yTop, float scale, std::string_view str);
     [[nodiscard]] static float textWidth(std::string_view str, float scale);

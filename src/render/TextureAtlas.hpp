@@ -2,6 +2,7 @@
 
 #include "gl/GlObjects.hpp"
 
+#include <cstdint>
 #include <filesystem>
 #include <span>
 #include <string>
@@ -21,14 +22,30 @@ class TextureAtlas {
 public:
     static constexpr int TilesPerRow = 8;
 
+    // HUD icon tiles, filled from the pack's gui/sprites/hud when it has them
+    // (hasGuiIcons). The HUD draws these textured, else falls back to flat pips.
+    static constexpr std::uint8_t HeartFullTile = 25;
+    static constexpr std::uint8_t HeartHalfTile = 26;
+    static constexpr std::uint8_t HeartBgTile = 27;
+    static constexpr std::uint8_t FoodFullTile = 28;
+    static constexpr std::uint8_t FoodHalfTile = 29;
+    static constexpr std::uint8_t FoodBgTile = 30;
+    static constexpr std::uint8_t AirTile = 31;
+    // destroy_stage_0..9 occupy tiles 33..42 (block-breaking overlay).
+    static constexpr std::uint8_t DestroyStage0Tile = 33;
+    static constexpr int DestroyStageCount = 10;
+
     [[nodiscard]] static TextureAtlas create(std::span<const std::filesystem::path> packs = {});
 
     void bind(unsigned unit) const noexcept;
+    [[nodiscard]] bool hasGuiIcons() const noexcept { return m_hasGuiIcons; }
 
 private:
-    explicit TextureAtlas(gl::Texture2D texture) noexcept : m_texture{std::move(texture)} {}
+    TextureAtlas(gl::Texture2D texture, bool hasGuiIcons) noexcept
+        : m_texture{std::move(texture)}, m_hasGuiIcons{hasGuiIcons} {}
 
     gl::Texture2D m_texture;
+    bool m_hasGuiIcons = false;
 };
 
 namespace resourcepacks {

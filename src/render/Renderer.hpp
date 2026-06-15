@@ -53,6 +53,10 @@ public:
     // Call after render(): reuses the frame's chunk-shader state.
     void drawDrops(std::span<const DropDraw> drops);
 
+    // Block-breaking crack overlay on the targeted block (stage 0..9). Call
+    // after render(); reuses the frame's chunk-shader state.
+    void drawBlockBreak(const glm::ivec3& block, int stage);
+
     // Debug wireframe: the cell grid on the four walls of one chunk column,
     // drawn depth-test-off so it reads through terrain.
     void drawChunkBorders(const glm::mat4& viewProj, ChunkCoord chunk);
@@ -96,6 +100,7 @@ private:
 
     [[nodiscard]] static GpuMesh makeGpuMesh(const ChunkMeshData& data);
     [[nodiscard]] const GpuMesh& dropMesh(BlockType type);
+    [[nodiscard]] const GpuMesh& breakMesh(std::uint8_t tile);
     void detectGpu();
 
     gl::ShaderProgram m_chunkShader;
@@ -103,6 +108,7 @@ private:
     TextureAtlas m_atlas;
     std::unordered_map<ChunkCoord, ChunkMeshes, ChunkCoordHash> m_chunks;
     std::unordered_map<BlockType, GpuMesh> m_dropMeshes; // built lazily per type
+    std::unordered_map<std::uint8_t, GpuMesh> m_breakMeshes; // crack cubes, per stage tile
 
     // Per-frame visible set; kept as a member so its capacity persists and the
     // render loop does no heap allocation after the first frame.

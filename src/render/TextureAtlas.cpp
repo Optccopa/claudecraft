@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -47,9 +48,25 @@ struct Rgba {
                 static_cast<std::uint8_t>(static_cast<float>(b) * factor), 255};
 }
 
+// Procedural destroy-stage crack: dark speckles spreading from the tile centre
+// as the stage rises, transparent elsewhere. Fallback only — real packs supply
+// destroy_stage_N and override these tiles.
+[[nodiscard]] Rgba crackPixel(int stage, int px, int py) noexcept {
+    const int cx = std::abs(px * 2 - (kTilePixels - 1));
+    const int cy = std::abs(py * 2 - (kTilePixels - 1));
+    const int reach = (stage + 1) * (kTilePixels * 2) / 10;
+    if (std::max(cx, cy) > reach) {
+        return Rgba{0, 0, 0, 0};
+    }
+    return pixelNoise(px, py, 4099) < 0.22f ? Rgba{28, 25, 22, 200} : Rgba{0, 0, 0, 0};
+}
+
 // px, py are tile-local with py measured from the tile's bottom row,
 // matching GL's bottom-left texture origin.
 [[nodiscard]] Rgba tilePixel(int tile, int px, int py) noexcept {
+    if (tile >= 33 && tile <= 42) {
+        return crackPixel(tile - 33, px, py);
+    }
     const float n = pixelNoise(px, py, tile);
     const float speckle = 1.0f - 0.12f * n;
     switch (tile) {
@@ -243,6 +260,16 @@ public:
         return std::nullopt;
     }
 
+    // Raw PNG bytes for an arbitrary texture path under
+    // assets/minecraft/textures/ (e.g. "gui/sprites/hud/heart/full").
+    [[nodiscard]] std::optional<std::vector<unsigned char>> asset(const char* path) const {
+        const std::string rel = std::format("assets/minecraft/textures/{}.png", path);
+        if (m_zip) {
+            return m_zip->read(rel);
+        }
+        return readDirFile(m_dir / rel);
+    }
+
 private:
     ResourcePack(ZipArchive zip, std::string label)
         : m_zip{std::move(zip)}, m_label{std::move(label)} {}
@@ -341,7 +368,36 @@ void compositeTile(std::vector<Rgba>& atlas, int tile,
     return std::nullopt;
 }
 
-[[nodiscard]] std::vector<Rgba> buildLayeredAtlas(std::span<const ResourcePack> packs) {
+// Pack HUD sprites that fill the icon tiles. Stored as full texture paths
+// (under assets/minecraft/textures/) since they live outside block/.
+struct GuiTex {
+    int tile;
+    const char* path;
+};
+constexpr std::array<GuiTex, 7> kGuiTextures{{
+    {TextureAtlas::HeartFullTile, "gui/sprites/hud/heart/full"},
+    {TextureAtlas::HeartHalfTile, "gui/sprites/hud/heart/half"},
+    {TextureAtlas::HeartBgTile, "gui/sprites/hud/heart/container"},
+    {TextureAtlas::FoodFullTile, "gui/sprites/hud/food_full"},
+    {TextureAtlas::FoodHalfTile, "gui/sprites/hud/food_half"},
+    {TextureAtlas::FoodBgTile, "gui/sprites/hud/food_empty"},
+    {TextureAtlas::AirTile, "gui/sprites/hud/air"},
+}};
+
+[[nodiscard]] std::optional<std::array<Rgba, kTilePixels * kTilePixels>> resolveAsset(
+    std::span<const ResourcePack> packs, const char* path) {
+    for (const ResourcePack& pack : packs) {
+        if (const auto png = pack.asset(path)) {
+            if (auto tile = decodeTile(*png, Tint::None)) {
+                return tile;
+            }
+        }
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] std::vector<Rgba> buildLayeredAtlas(std::span<const ResourcePack> packs,
+                                                  bool& hasGuiIcons) {
     std::vector<Rgba> pixels(static_cast<std::size_t>(kAtlasPixels) * kAtlasPixels, kMissing);
     int loaded = 0;
     int missing = 0;
@@ -357,8 +413,37 @@ void compositeTile(std::vector<Rgba>& atlas, int tile,
     if (const auto overlay = resolveTile(packs, "grass_block_side_overlay", Tint::Grass)) {
         compositeTile(pixels, 3, *overlay);
     }
-    logInfo(std::format("texture atlas: {} packs, {} tiles loaded, {} missing (magenta)",
-                        packs.size(), loaded, missing));
+    // HUD icons (hearts/hunger/air). hasGuiIcons gates the textured HUD path;
+    // a pack lacking them leaves the tiles magenta and the HUD uses flat pips.
+    hasGuiIcons = false;
+    for (const GuiTex& g : kGuiTextures) {
+        if (const auto tile = resolveAsset(packs, g.path)) {
+            blitTile(pixels, g.tile, *tile);
+            if (g.tile == TextureAtlas::HeartFullTile) {
+                hasGuiIcons = true;
+            }
+        }
+    }
+    // Block-breaking overlay stages. Unlike other tiles these always resolve:
+    // a pack that omits destroy_stage_N falls back to a procedural crack so the
+    // animation is never magenta.
+    for (int s = 0; s < TextureAtlas::DestroyStageCount; ++s) {
+        const int tileId = TextureAtlas::DestroyStage0Tile + s;
+        const std::string name = std::format("destroy_stage_{}", s);
+        if (const auto tile = resolveTile(packs, name.c_str(), Tint::None)) {
+            blitTile(pixels, tileId, *tile);
+        } else {
+            std::array<Rgba, kTilePixels * kTilePixels> crack{};
+            for (int py = 0; py < kTilePixels; ++py) {
+                for (int px = 0; px < kTilePixels; ++px) {
+                    crack[static_cast<std::size_t>(py) * kTilePixels + px] = crackPixel(s, px, py);
+                }
+            }
+            blitTile(pixels, tileId, crack);
+        }
+    }
+    logInfo(std::format("texture atlas: {} packs, {} tiles loaded, {} missing (magenta){}",
+                        packs.size(), loaded, missing, hasGuiIcons ? ", hud icons" : ""));
     return pixels;
 }
 
@@ -402,9 +487,10 @@ TextureAtlas TextureAtlas::create(std::span<const std::filesystem::path> packs) 
             }
         }
         if (!opened.empty()) {
-            const auto pixels = buildLayeredAtlas(opened);
+            bool hasGuiIcons = false;
+            const auto pixels = buildLayeredAtlas(opened, hasGuiIcons);
             uploadTexture(texture.id(), pixels.data(), kAtlasPixels);
-            return TextureAtlas{std::move(texture)};
+            return TextureAtlas{std::move(texture), hasGuiIcons};
         }
     }
 
@@ -419,7 +505,7 @@ TextureAtlas TextureAtlas::create(std::span<const std::filesystem::path> packs) 
         if (data != nullptr && width == height && width % TilesPerRow == 0) {
             uploadTexture(texture.id(), data.get(), width);
             logInfo(std::format("loaded texture atlas '{}' ({}x{})", path, width, height));
-            return TextureAtlas{std::move(texture)};
+            return TextureAtlas{std::move(texture), false};
         }
         logError(std::format("ignoring '{}': {}", path,
                              data == nullptr ? stbi_failure_reason() : "must be square, side % 8 == 0"));
@@ -428,7 +514,7 @@ TextureAtlas TextureAtlas::create(std::span<const std::filesystem::path> packs) 
     const auto pixels = buildProceduralAtlas();
     uploadTexture(texture.id(), pixels.data(), kAtlasPixels);
     logInfo("using procedural texture atlas");
-    return TextureAtlas{std::move(texture)};
+    return TextureAtlas{std::move(texture), false};
 }
 
 void TextureAtlas::bind(unsigned unit) const noexcept {

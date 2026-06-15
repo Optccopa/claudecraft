@@ -21,6 +21,14 @@ constexpr float kJumpVelocity = 8.2f;
 constexpr float kTerminalVelocity = 60.0f;
 constexpr float kSkin = 1e-4f; // gap kept between AABB and voxel faces
 
+// Swimming: water drags movement to half speed, you sink slowly, and the jump
+// bind swims up / the descend bind dives. Vertical velocity eases toward a
+// target so it feels buoyant rather than gravity-driven.
+constexpr float kSwimFactor = 0.5f;
+constexpr float kSwimSink = 1.6f;
+constexpr float kSwimRise = 4.0f;
+constexpr float kSwimVertAccel = 9.0f;
+
 [[nodiscard]] bool solidAt(const World& world, int x, int y, int z) noexcept {
     return blockInfo(world.blockAt({x, y, z})).solid;
 }
@@ -175,11 +183,27 @@ void Player::fixedUpdate(float dt, const World& world) {
     // Sprint scales horizontal speed; crouch wins so sneaking stays slow.
     const float sprintFactor = m_input.sprint ? kSprintFactor : 1.0f;
 
+    // Sample at the feet so swimming holds until the player has fully risen
+    // out — that's what lets a held jump carry you up onto the bank.
+    const float feetY = m_position.y - m_halfHeight + 0.1f;
+    const glm::ivec3 feetCell{static_cast<int>(std::floor(m_position.x)),
+                              static_cast<int>(std::floor(feetY)),
+                              static_cast<int>(std::floor(m_position.z))};
+    const bool inWater = isLiquid(world.blockAt(feetCell));
+
     if (m_flying) {
         const float flySpeed = kFlySpeed * m_speedMultiplier * sprintFactor;
         glm::vec3 target = wish * flySpeed;
         target.y = (m_input.jump ? flySpeed : 0.0f) - (m_input.descend ? flySpeed : 0.0f);
         m_velocity = target;
+        m_onGround = false;
+    } else if (inWater) {
+        const float swimSpeed = kWalkSpeed * m_speedMultiplier * kSwimFactor;
+        m_velocity.x = wish.x * swimSpeed;
+        m_velocity.z = wish.z * swimSpeed;
+        const float targetY =
+            m_input.jump ? kSwimRise : (m_input.descend ? -kSwimRise : -kSwimSink);
+        m_velocity.y += (targetY - m_velocity.y) * std::min(kSwimVertAccel * dt, 1.0f);
         m_onGround = false;
     } else {
         const float walkSpeed = kWalkSpeed * m_speedMultiplier *
@@ -189,6 +213,9 @@ void Player::fixedUpdate(float dt, const World& world) {
         m_velocity.y = std::max(m_velocity.y - kGravity * dt, -kTerminalVelocity);
         if (m_input.jump && m_onGround) {
             m_velocity.y = kJumpVelocity;
+            if (m_survival) {
+                m_exhaustion += m_input.sprint ? 0.2f : 0.05f; // (sprint-)jump cost
+            }
         }
         m_onGround = false;
     }
@@ -197,6 +224,92 @@ void Player::fixedUpdate(float dt, const World& world) {
     moveAxis(world, 1, m_velocity.y * dt);
     moveHorizontalAxis(world, 0, m_velocity.x * dt);
     moveHorizontalAxis(world, 2, m_velocity.z * dt);
+
+    if (m_survival) {
+        updateSurvival(dt, world, inWater);
+    }
+}
+
+void Player::updateSurvival(float dt, const World& world, bool inWater) {
+    // Fall damage: track the apex since leaving the ground; on landing, lose
+    // one half-heart per block past a 3-block cushion. Water cancels it.
+    if (m_flying || inWater) {
+        m_airborne = false;
+    } else if (!m_onGround) {
+        if (!m_airborne) {
+            m_airborne = true;
+            m_fallPeakY = m_position.y;
+        }
+        m_fallPeakY = std::max(m_fallPeakY, m_position.y);
+    } else if (m_airborne) {
+        const float fallen = m_fallPeakY - m_position.y;
+        m_health -= std::max(0.0f, fallen - 3.0f);
+        m_airborne = false;
+    }
+
+    // Hunger: movement and actions build exhaustion; every 4 points spends a
+    // saturation, then a food point. (Walking on foot is free, as in vanilla.)
+    const float horiz = std::hypot(m_position.x - m_prevPosition.x, m_position.z - m_prevPosition.z);
+    if (inWater) {
+        m_exhaustion += 0.01f * horiz;
+    } else if (m_input.sprint && !m_flying) {
+        m_exhaustion += 0.1f * horiz;
+    }
+    while (m_exhaustion >= 4.0f) {
+        m_exhaustion -= 4.0f;
+        if (m_saturation > 0.0f) {
+            m_saturation = std::max(0.0f, m_saturation - 1.0f);
+        } else {
+            m_hunger = std::max(0.0f, m_hunger - 1.0f);
+        }
+    }
+
+    // Natural regen at 9+ shanks: one half-heart every 4 s, paid in exhaustion.
+    if (m_health < kMaxHealth && m_hunger >= 18.0f) {
+        m_regenTimer += dt;
+        if (m_regenTimer >= 4.0f) {
+            m_regenTimer = 0.0f;
+            m_health = std::min(kMaxHealth, m_health + 1.0f);
+            m_exhaustion += 6.0f;
+        }
+    } else {
+        m_regenTimer = 0.0f;
+    }
+
+    // Starvation at empty hunger: one half-heart every 4 s, floored above death.
+    if (m_hunger <= 0.0f) {
+        m_starveTimer += dt;
+        if (m_starveTimer >= 4.0f) {
+            m_starveTimer = 0.0f;
+            m_health = std::max(1.0f, m_health - 1.0f);
+        }
+    } else {
+        m_starveTimer = 0.0f;
+    }
+
+    // Drowning: a submerged head drains ~15 s of breath, then one heart per
+    // second until it surfaces; air refills quickly out of water.
+    const float eyeY = m_position.y + m_halfHeight - kEyeBelowTop;
+    const glm::ivec3 headCell{static_cast<int>(std::floor(m_position.x)),
+                              static_cast<int>(std::floor(eyeY)),
+                              static_cast<int>(std::floor(m_position.z))};
+    if (isLiquid(world.blockAt(headCell))) {
+        m_air = std::max(0.0f, m_air - dt / 15.0f);
+        if (m_air <= 0.0f) {
+            m_drownTimer += dt;
+            if (m_drownTimer >= 1.0f) {
+                m_drownTimer = 0.0f;
+                m_health -= 2.0f;
+            }
+        }
+    } else {
+        m_air = std::min(1.0f, m_air + dt * 0.5f);
+        m_drownTimer = 0.0f;
+    }
+
+    // Death is surfaced to the app (death screen + loot drop + respawn), not
+    // handled here. Clamp so the HUD never shows negative or overfull hearts.
+    m_health = std::clamp(m_health, 0.0f, kMaxHealth);
 }
 
 void Player::updateCrouch(const World& world) {

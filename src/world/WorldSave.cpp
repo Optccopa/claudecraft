@@ -71,15 +71,23 @@ std::unique_ptr<Chunk> WorldSave::tryLoad(ChunkCoord coord) const {
 
 void WorldSave::save(const Chunk& chunk) const {
     const auto& blocks = chunk.blocks();
+    const auto& fluid = chunk.fluidLevels();
+    // Only liquid sources persist; flowing liquid (level < 8) is transient and
+    // re-derived on load, so it serializes as air.
+    const auto effective = [&](std::size_t i) noexcept {
+        const BlockType block = blocks[i];
+        return (isLiquid(block) && fluid[i] < 8) ? BlockType::Air : block;
+    };
+
     std::vector<Run> runs;
     runs.reserve(1024);
 
     // RLE suits voxel columns: long vertical runs of stone, air and water.
     std::size_t i = 0;
     while (i < blocks.size()) {
-        const BlockType block = blocks[i];
+        const BlockType block = effective(i);
         std::size_t length = 1;
-        while (i + length < blocks.size() && blocks[i + length] == block && length < 0xFFFF) {
+        while (i + length < blocks.size() && effective(i + length) == block && length < 0xFFFF) {
             ++length;
         }
         runs.push_back(Run{static_cast<std::uint16_t>(length), static_cast<std::uint8_t>(block)});

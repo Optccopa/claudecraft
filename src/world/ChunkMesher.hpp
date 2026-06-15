@@ -54,9 +54,10 @@ struct MeshInput {
 
     ChunkCoord coord;
     std::uint32_t revision = 0;
-    bool smoothLighting = true;             // off: flat per-face light, no AO
-    std::array<BlockType, Cells> blocks{};  // PaddedX * PaddedZ * SizeY
+    bool smoothLighting = true;              // off: flat per-face light, no AO
+    std::array<BlockType, Cells> blocks{};   // PaddedX * PaddedZ * SizeY
     std::array<std::uint8_t, Cells> light{}; // same layout, packed sky | block << 4
+    std::array<std::uint8_t, Cells> fluid{}; // same layout, liquid level 0..8
 
     // x and z accept [-1, Size]; any y outside [0, SizeY) reads as Air.
     [[nodiscard]] BlockType at(int x, int y, int z) const noexcept {
@@ -65,6 +66,15 @@ struct MeshInput {
         }
         const int idx = ((x + 1) * PaddedZ + (z + 1)) * Chunk::SizeY + y;
         return blocks[static_cast<std::size_t>(idx)];
+    }
+
+    // Liquid level for the cell (0 none, 8 source); out of range reads as 0.
+    [[nodiscard]] std::uint8_t fluidAt(int x, int y, int z) const noexcept {
+        if (y < 0 || y >= Chunk::SizeY) {
+            return 0;
+        }
+        const int idx = ((x + 1) * PaddedZ + (z + 1)) * Chunk::SizeY + y;
+        return fluid[static_cast<std::size_t>(idx)];
     }
 
     // Above the world is full sky; below is darkness.

@@ -36,22 +36,23 @@ void setupChunkAttributes() {
 // Unit cube centered on the origin for dropped items, in the chunk vertex
 // format: full AO, light baked as block-channel 15 so the shader's sun and
 // sky scaling don't apply — uLightScale carries the drop's sampled light.
-[[nodiscard]] ChunkMeshData makeDropMeshData(BlockType type) {
+// Unit cube spanning [0,1]^3 at full block light; the shader's uCenter=0.5
+// recenters it so uScale shrinks/inflates it about its origin. Shared by the
+// dropped items and the block-breaking overlay (one tile on every face).
+[[nodiscard]] ChunkMeshData makeCubeMeshData(std::uint8_t top, std::uint8_t side,
+                                             std::uint8_t bottom) {
     struct Face {
         std::array<glm::vec3, 4> corners;
         std::uint32_t normalIndex;
         std::uint8_t tile;
     };
-    const BlockInfo& info = blockInfo(type);
-    // Unit cube spanning [0,1]^3; the shader's uCenter=0.5 recenters it so
-    // uScale shrinks it about the drop's origin. Integer corners pack cleanly.
     const std::array<Face, 6> faces{{
-        {{glm::vec3{1, 0, 0}, {1, 1, 0}, {1, 1, 1}, {1, 0, 1}}, 0, info.sideTile},
-        {{glm::vec3{0, 0, 0}, {0, 0, 1}, {0, 1, 1}, {0, 1, 0}}, 1, info.sideTile},
-        {{glm::vec3{0, 1, 0}, {0, 1, 1}, {1, 1, 1}, {1, 1, 0}}, 2, info.topTile},
-        {{glm::vec3{0, 0, 0}, {1, 0, 0}, {1, 0, 1}, {0, 0, 1}}, 3, info.bottomTile},
-        {{glm::vec3{0, 0, 1}, {1, 0, 1}, {1, 1, 1}, {0, 1, 1}}, 4, info.sideTile},
-        {{glm::vec3{0, 0, 0}, {0, 1, 0}, {1, 1, 0}, {1, 0, 0}}, 5, info.sideTile},
+        {{glm::vec3{1, 0, 0}, {1, 1, 0}, {1, 1, 1}, {1, 0, 1}}, 0, side},
+        {{glm::vec3{0, 0, 0}, {0, 0, 1}, {0, 1, 1}, {0, 1, 0}}, 1, side},
+        {{glm::vec3{0, 1, 0}, {0, 1, 1}, {1, 1, 1}, {1, 1, 0}}, 2, top},
+        {{glm::vec3{0, 0, 0}, {1, 0, 0}, {1, 0, 1}, {0, 0, 1}}, 3, bottom},
+        {{glm::vec3{0, 0, 1}, {1, 0, 1}, {1, 1, 1}, {0, 1, 1}}, 4, side},
+        {{glm::vec3{0, 0, 0}, {0, 1, 0}, {1, 1, 0}, {1, 0, 0}}, 5, side},
     }};
     constexpr std::array<std::array<int, 2>, 4> kUvs{{{0, 0}, {1, 0}, {1, 1}, {0, 1}}};
 
@@ -72,6 +73,11 @@ void setupChunkAttributes() {
         }
     }
     return data;
+}
+
+[[nodiscard]] ChunkMeshData makeDropMeshData(BlockType type) {
+    const BlockInfo& info = blockInfo(type);
+    return makeCubeMeshData(info.topTile, info.sideTile, info.bottomTile);
 }
 
 // 12 cube edges as line segments, unit cube at the origin.
@@ -342,6 +348,42 @@ void Renderer::drawDrops(std::span<const DropDraw> drops) {
     m_chunkShader.setFloat("uCenter", 0.0f);
     m_chunkShader.setFloat("uLightScale", 1.0f);
     glBindVertexArray(0);
+}
+
+const Renderer::GpuMesh& Renderer::breakMesh(std::uint8_t tile) {
+    if (const auto it = m_breakMeshes.find(tile); it != m_breakMeshes.end()) {
+        return it->second;
+    }
+    return m_breakMeshes.emplace(tile, makeGpuMesh(makeCubeMeshData(tile, tile, tile)))
+        .first->second;
+}
+
+// Crack overlay: a slightly inflated, full-bright cube of the stage tile drawn
+// over the targeted block. The fragment discard keeps only the crack texels, so
+// they blend dark onto every visible face. Reuses render()'s shader state.
+void Renderer::drawBlockBreak(const glm::ivec3& block, int stage) {
+    const auto tile = static_cast<std::uint8_t>(
+        TextureAtlas::DestroyStage0Tile +
+        std::clamp(stage, 0, TextureAtlas::DestroyStageCount - 1));
+    const GpuMesh& mesh = breakMesh(tile);
+
+    m_chunkShader.use();
+    m_chunkShader.setVec3("uChunkOrigin", glm::vec3{block} + glm::vec3{0.5f});
+    m_chunkShader.setFloat("uScale", 1.02f); // inflate to sit just proud of the faces
+    m_chunkShader.setFloat("uCenter", 0.5f);
+    m_chunkShader.setFloat("uAlpha", 0.75f);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDepthMask(GL_FALSE);
+    mesh.vao.bind();
+    glDrawElements(GL_TRIANGLES, mesh.indexCount, GL_UNSIGNED_INT, nullptr);
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    glBindVertexArray(0);
+
+    m_chunkShader.setFloat("uScale", 1.0f);
+    m_chunkShader.setFloat("uCenter", 0.0f);
+    m_chunkShader.setFloat("uAlpha", 1.0f);
 }
 
 } // namespace cc

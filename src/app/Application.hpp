@@ -10,6 +10,7 @@
 #include "player/Player.hpp"
 #include "world/Drops.hpp"
 #include "render/Hud.hpp"
+#include "render/PostProcess.hpp"
 #include "render/Renderer.hpp"
 #include "render/Sky.hpp"
 #include "world/Block.hpp"
@@ -36,7 +37,7 @@ public:
     void run();
 
 private:
-    enum class GameState { Menu, Playing, Paused, Settings };
+    enum class GameState { Menu, Playing, Paused, Settings, Dead };
     enum class MenuScreen { Main, Worlds };
     enum class SettingsCategory { Video, Controls, Packs, Cheats };
 
@@ -68,6 +69,10 @@ private:
     void handleBlockEdits(float frameDt, const RaycastHit& target);
     void setInventoryOpen(bool open);
     void drawInventoryUi(const glm::ivec2& fbSize);
+    void drawSurvivalStatus(const glm::ivec2& fbSize, bool submerged);
+    // Death: scatter the whole inventory at the body and show the death screen.
+    void handleDeath();
+    void updateDead(const glm::ivec2& fbSize);
     void drawDrops(const SkyState& sky);
     void drawDebugOverlay(const glm::ivec2& fbSize, const RaycastHit& target);
     void renderWorld(World& world, const glm::ivec2& fbSize, const glm::vec3& eye, float yawDeg,
@@ -89,11 +94,13 @@ private:
     Window m_window;
     Input m_input;
     Renderer m_renderer;
+    PostProcess m_post;
     Hud m_hud;
     ThreadPool m_pool;
     std::unique_ptr<World> m_menuWorld;
     std::unique_ptr<World> m_world;
     Player m_player;
+    glm::vec3 m_worldSpawn{0.0f}; // default spawn, used for death respawn
     Camera m_camera;
 
     GameState m_state = GameState::Menu;
@@ -103,6 +110,7 @@ private:
     int m_rebinding = -1;      // index into the keybind rows while capturing
     int m_rebindHotbar = -1;   // hotbar slot 0..8 while capturing its key
     double m_worldTime = 0.05; // day fraction; advances only while Playing
+    double m_renderClock = 0.0; // wall-clock seconds for animated effects
     glm::vec3 m_menuEye{0.0f};
     double m_menuTime = 0.0;
 

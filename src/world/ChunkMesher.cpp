@@ -1,5 +1,6 @@
 #include "world/ChunkMesher.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 
@@ -122,8 +123,7 @@ void emitQuad(ChunkMeshData& mesh, const FaceBasis& face, const std::array<int, 
     }
 }
 
-void meshDirection(const MeshInput& input, const FaceBasis& face, ChunkMeshData& opaque,
-                   ChunkMeshData& water) {
+void meshDirection(const MeshInput& input, const FaceBasis& face, ChunkMeshData& opaque) {
     const int sizeN = kAxisSize[static_cast<std::size_t>(face.normalAxis)];
     const int sizeU = kAxisSize[static_cast<std::size_t>(face.uAxis)];
     const int sizeV = kAxisSize[static_cast<std::size_t>(face.vAxis)];
@@ -146,16 +146,12 @@ void meshDirection(const MeshInput& input, const FaceBasis& face, ChunkMeshData&
                 p[static_cast<std::size_t>(face.vAxis)] = iv;
 
                 const BlockType block = input.at(p[0], p[1], p[2]);
-                if (block == BlockType::Air || !isFullCube(block)) {
-                    continue; // non-cube shapes are emitted in a separate pass
+                if (block == BlockType::Air || isLiquid(block) || !isFullCube(block)) {
+                    continue; // liquids and non-cube shapes have their own passes
                 }
                 const BlockType neighbor =
                     input.at(p[0] + normal[0], p[1] + normal[1], p[2] + normal[2]);
-
-                // Water only shows a face against air, so submerged terrain
-                // renders through one translucent surface, not stacked layers.
-                const bool isWater = block == BlockType::Water;
-                if (isWater ? neighbor != BlockType::Air : occludes(neighbor)) {
+                if (occludes(neighbor)) {
                     continue;
                 }
 
@@ -221,7 +217,7 @@ void meshDirection(const MeshInput& input, const FaceBasis& face, ChunkMeshData&
                     cell.blockLight[static_cast<std::size_t>(corner)] =
                         static_cast<std::uint8_t>(blockSum / samples);
                 }
-                cell.ao = isWater ? 0xFF : aoBits;
+                cell.ao = aoBits;
             }
         }
 
@@ -261,8 +257,7 @@ void meshDirection(const MeshInput& input, const FaceBasis& face, ChunkMeshData&
                 base[static_cast<std::size_t>(face.uAxis)] = iu;
                 base[static_cast<std::size_t>(face.vAxis)] = iv;
 
-                emitQuad(cell.block == BlockType::Water ? water : opaque, face, base, width,
-                         height, cell);
+                emitQuad(opaque, face, base, width, height, cell);
 
                 for (int dv = 0; dv < height; ++dv) {
                     for (int du = 0; du < width; ++du) {
@@ -395,6 +390,97 @@ void emitBox(ChunkMeshData& mesh, const MeshInput& input, int lx, int ly, int lz
     }
 }
 
+// Liquid surface height in sixteenths from the cell's level: a source sits at
+// 14/16 (clearly below a full block), flowing levels step down from there.
+[[nodiscard]] int liquidHeight16(std::uint8_t level) noexcept {
+    return std::min(14, static_cast<int>(level) * 2);
+}
+
+// Liquids are not cubes — their top surface drops with the level — so they get
+// a dedicated per-cell pass into the translucent water mesh rather than greedy
+// meshing. A face shows only against air (submerged faces stay hidden). Each
+// surface corner height is averaged from the up-to-four liquid cells meeting
+// there (full if any has liquid above), so neighbouring cells share corner
+// heights and the surface slopes smoothly instead of stepping.
+void meshLiquids(const MeshInput& input, ChunkMeshData& water) {
+    const std::uint8_t tile = blockInfo(BlockType::Water).sideTile;
+    for (int lx = 0; lx < Chunk::SizeX; ++lx) {
+        for (int lz = 0; lz < Chunk::SizeZ; ++lz) {
+            for (int ly = 0; ly < Chunk::SizeY; ++ly) {
+                if (!isLiquid(input.at(lx, ly, lz))) {
+                    continue;
+                }
+                const int ox = lx * 16, oy = ly * 16, oz = lz * 16;
+
+                // Height (sixteenths, absolute Y) of the grid corner at cell
+                // offset (cxOff, czOff): mean of the liquid cells around it.
+                const auto corner = [&](int cxOff, int czOff) {
+                    int total = 0, count = 0;
+                    for (int dx = -1; dx <= 0; ++dx) {
+                        for (int dz = -1; dz <= 0; ++dz) {
+                            const int cx = lx + cxOff + dx, cz = lz + czOff + dz;
+                            if (!isLiquid(input.at(cx, ly, cz))) {
+                                continue;
+                            }
+                            if (isLiquid(input.at(cx, ly + 1, cz))) {
+                                return oy + 16; // a column above pins this corner full
+                            }
+                            const std::uint8_t lv = input.fluidAt(cx, ly, cz);
+                            total += liquidHeight16(lv == 0 ? 8 : lv);
+                            ++count;
+                        }
+                    }
+                    const std::uint8_t self = input.fluidAt(lx, ly, lz);
+                    return oy + (count > 0 ? total / count : liquidHeight16(self == 0 ? 8 : self));
+                };
+                const int t00 = corner(0, 0), t10 = corner(1, 0);
+                const int t11 = corner(1, 1), t01 = corner(0, 1);
+
+                const auto faceLight = [&](int dx, int dy, int dz, std::uint32_t normalIndex,
+                                           const std::array<ShapeVertex, 4>& quad) {
+                    if (input.at(lx + dx, ly + dy, lz + dz) != BlockType::Air) {
+                        return;
+                    }
+                    const std::uint8_t l = input.lightAt(lx + dx, ly + dy, lz + dz);
+                    emitShapeQuad(water, quad, normalIndex, Chunk::skyLevel(l),
+                                  Chunk::blockLevel(l), false);
+                };
+
+                faceLight(1, 0, 0, 0u,
+                          {{{ox + 16, oy, oz, 0, 0, tile},
+                            {ox + 16, t10, oz, 0, 1, tile},
+                            {ox + 16, t11, oz + 16, 1, 1, tile},
+                            {ox + 16, oy, oz + 16, 1, 0, tile}}});
+                faceLight(-1, 0, 0, 1u,
+                          {{{ox, oy, oz, 0, 0, tile},
+                            {ox, oy, oz + 16, 1, 0, tile},
+                            {ox, t01, oz + 16, 1, 1, tile},
+                            {ox, t00, oz, 0, 1, tile}}});
+                faceLight(0, 0, 1, 4u,
+                          {{{ox, oy, oz + 16, 0, 0, tile},
+                            {ox + 16, oy, oz + 16, 1, 0, tile},
+                            {ox + 16, t11, oz + 16, 1, 1, tile},
+                            {ox, t01, oz + 16, 0, 1, tile}}});
+                faceLight(0, 0, -1, 5u,
+                          {{{ox, oy, oz, 0, 0, tile},
+                            {ox, t00, oz, 0, 1, tile},
+                            {ox + 16, t10, oz, 1, 1, tile},
+                            {ox + 16, oy, oz, 1, 0, tile}}});
+                faceLight(0, 1, 0, 2u,
+                          {{{ox, t00, oz, 0, 0, tile},
+                            {ox, t01, oz + 16, 0, 1, tile},
+                            {ox + 16, t11, oz + 16, 1, 1, tile},
+                            {ox + 16, t10, oz, 1, 0, tile}}});
+                faceLight(0, -1, 0, 3u,
+                          {{{ox, oy, oz, 0, 0, tile},
+                            {ox + 16, oy, oz, 1, 0, tile},
+                            {ox + 16, oy, oz + 16, 1, 1, tile},
+                            {ox, oy, oz + 16, 0, 1, tile}}});
+            }
+        }
+    }
+}
+
 // Non-cube blocks (cross billboards, inset boxes) are emitted by this single
 // scan after the greedy cube passes, all into the opaque mesh.
 void meshSpecialShapes(const MeshInput& input, ChunkMeshData& opaque) {
@@ -422,8 +508,9 @@ ChunkMesher::Result ChunkMesher::build(const MeshInput& input) {
     result.opaque.vertices.reserve(4096);
     result.opaque.indices.reserve(6144);
     for (const FaceBasis& face : kFaces) {
-        meshDirection(input, face, result.opaque, result.water);
+        meshDirection(input, face, result.opaque);
     }
+    meshLiquids(input, result.water);
     meshSpecialShapes(input, result.opaque);
     return result;
 }

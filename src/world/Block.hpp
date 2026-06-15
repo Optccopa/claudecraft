@@ -59,6 +59,12 @@ struct BlockInfo {
     return type == BlockType::Air;
 }
 
+// Flowing liquids (water now, lava later) — simulated by FluidSim with a
+// per-cell level. Their block id marks presence; the level lives in the chunk.
+[[nodiscard]] constexpr bool isLiquid(BlockType type) noexcept {
+    return type == BlockType::Water;
+}
+
 // Full-cell blocks go through the greedy cube mesher; everything else
 // (cross billboards, inset boxes) is emitted by a dedicated per-block pass.
 [[nodiscard]] inline bool isFullCube(BlockType type) noexcept {

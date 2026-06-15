@@ -75,4 +75,48 @@ private:
     GLuint m_id = 0;
 };
 
+class Renderbuffer {
+public:
+    Renderbuffer() { glGenRenderbuffers(1, &m_id); }
+    ~Renderbuffer() { glDeleteRenderbuffers(1, &m_id); }
+
+    Renderbuffer(const Renderbuffer&) = delete;
+    Renderbuffer& operator=(const Renderbuffer&) = delete;
+    Renderbuffer(Renderbuffer&& other) noexcept : m_id{std::exchange(other.m_id, 0)} {}
+    Renderbuffer& operator=(Renderbuffer&& other) noexcept {
+        if (this != &other) {
+            glDeleteRenderbuffers(1, &m_id);
+            m_id = std::exchange(other.m_id, 0);
+        }
+        return *this;
+    }
+
+    [[nodiscard]] GLuint id() const noexcept { return m_id; }
+
+private:
+    GLuint m_id = 0;
+};
+
+class Framebuffer {
+public:
+    Framebuffer() { glGenFramebuffers(1, &m_id); }
+    ~Framebuffer() { glDeleteFramebuffers(1, &m_id); }
+
+    Framebuffer(const Framebuffer&) = delete;
+    Framebuffer& operator=(const Framebuffer&) = delete;
+    Framebuffer(Framebuffer&& other) noexcept : m_id{std::exchange(other.m_id, 0)} {}
+    Framebuffer& operator=(Framebuffer&& other) noexcept {
+        if (this != &other) {
+            glDeleteFramebuffers(1, &m_id);
+            m_id = std::exchange(other.m_id, 0);
+        }
+        return *this;
+    }
+
+    [[nodiscard]] GLuint id() const noexcept { return m_id; }
+
+private:
+    GLuint m_id = 0;
+};
+
 } // namespace cc::gl

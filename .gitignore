@@ -18,8 +18,8 @@ texture_packs/
 .vscode/ipch/
 .vscode/browse.vc.db*
 
-# Claude
-.claude/
+# Claude Local
+.claude\settings.local.json
 
 # User-local preferences
 settings.txt

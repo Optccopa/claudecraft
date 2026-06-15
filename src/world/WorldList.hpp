@@ -16,6 +16,13 @@ struct WorldInfo {
     double timeOfDay = 0.05;   // fraction of a day; 0 = sunrise, 0.25 = noon
     GameMode mode = GameMode::Creative;
     std::filesystem::path directory;
+    // Saved player pose and survival vitals, restored on re-entry. hasPlayer is
+    // false for fresh worlds, which spawn at the default location with full
+    // vitals instead.
+    bool hasPlayer = false;
+    float playerX = 0.0f, playerY = 0.0f, playerZ = 0.0f;
+    float yaw = -90.0f, pitch = 0.0f;
+    float health = 20.0f, hunger = 20.0f, saturation = 5.0f, exhaustion = 0.0f, air = 1.0f;
 };
 
 namespace worldlist {

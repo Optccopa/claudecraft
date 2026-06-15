@@ -12,6 +12,7 @@ namespace {
 
 constexpr std::uint32_t kFlagTextured = 1u << 8;
 constexpr std::uint32_t kFlagDim = 2u << 8;
+constexpr std::uint32_t kFlagColored = 4u << 8;
 
 constexpr float kSlotSize = 48.0f;
 constexpr float kSlotGap = 6.0f;
@@ -55,6 +56,10 @@ void Hud::pushQuad(float x, float y, float w, float h, std::uint32_t data) {
 
 void Hud::rect(float x, float y, float w, float h, RectStyle style) {
     pushQuad(x, y, w, h, style == RectStyle::Dim ? kFlagDim : 0u);
+}
+
+void Hud::coloredRect(float x, float y, float w, float h, std::uint8_t color) {
+    pushQuad(x, y, w, h, kFlagColored | color);
 }
 
 void Hud::icon(float x, float y, float size, std::uint8_t tile) {

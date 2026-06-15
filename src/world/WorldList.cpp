@@ -7,17 +7,17 @@
 #include <charconv>
 #include <format>
 #include <fstream>
+#include <sstream>
 
 namespace cc::worldlist {
 namespace {
 
 constexpr std::string_view kMetaFile = "world.meta";
-// v1: seed. v2: + time of day. v3: + game mode. Readers accept all three so
-// old worlds open seamlessly (defaulting creative); writers always emit v3.
+// v1: seed. v2: + time of day. v3: + game mode. v4: + saved player pose.
+// Readers accept all versions so old worlds open seamlessly; writers emit v4.
 constexpr std::string_view kMetaPrefix = "claudecraft-world ";
 
-[[nodiscard]] bool readMeta(const std::filesystem::path& dir, std::uint32_t& seedOut,
-                            double& timeOut, GameMode& modeOut) {
+[[nodiscard]] bool readMeta(const std::filesystem::path& dir, WorldInfo& out) {
     std::ifstream file(dir / kMetaFile);
     std::string header;
     if (!std::getline(file, header) || !header.starts_with(kMetaPrefix)) {
@@ -26,7 +26,7 @@ constexpr std::string_view kMetaPrefix = "claudecraft-world ";
     int version = 0;
     const char* verFirst = header.data() + kMetaPrefix.size();
     const auto verResult = std::from_chars(verFirst, header.data() + header.size(), version);
-    if (verResult.ec != std::errc{} || version < 1 || version > 3) {
+    if (verResult.ec != std::errc{} || version < 1 || version > 4) {
         return false;
     }
 
@@ -34,17 +34,26 @@ constexpr std::string_view kMetaPrefix = "claudecraft-world ";
     if (!std::getline(file, line)) {
         return false;
     }
-    const auto seedResult = std::from_chars(line.data(), line.data() + line.size(), seedOut);
+    const auto seedResult = std::from_chars(line.data(), line.data() + line.size(), out.seed);
     if (seedResult.ec != std::errc{} || seedResult.ptr != line.data() + line.size()) {
         return false;
     }
     if (version >= 2 && std::getline(file, line)) {
-        if (std::from_chars(line.data(), line.data() + line.size(), timeOut).ec != std::errc{}) {
+        if (std::from_chars(line.data(), line.data() + line.size(), out.timeOfDay).ec !=
+            std::errc{}) {
             return false;
         }
     }
     if (version >= 3 && std::getline(file, line)) {
-        modeOut = (line == "survival") ? GameMode::Survival : GameMode::Creative;
+        out.mode = (line == "survival") ? GameMode::Survival : GameMode::Creative;
+    }
+    if (version >= 4 && std::getline(file, line)) {
+        std::istringstream pose{line};
+        if (pose >> out.playerX >> out.playerY >> out.playerZ >> out.yaw >> out.pitch) {
+            out.hasPlayer = true;
+            // Vitals were appended later; absent on early v4 worlds (defaults).
+            pose >> out.health >> out.hunger >> out.saturation >> out.exhaustion >> out.air;
+        }
     }
     return true;
 }
@@ -86,14 +95,13 @@ std::vector<WorldInfo> list(const std::filesystem::path& savesRoot) {
             continue;
         }
         const std::string name = entry.path().filename().string();
-        std::uint32_t seed = 0;
-        double timeOfDay = 0.05;
-        GameMode mode = GameMode::Creative;
-        if (!readMeta(entry.path(), seed, timeOfDay, mode) && !parseLegacyName(name, seed)) {
+        WorldInfo info;
+        info.name = name;
+        info.directory = entry.path();
+        if (!readMeta(entry.path(), info) && !parseLegacyName(name, info.seed)) {
             continue;
         }
-        found.emplace_back(entry.last_write_time(ec),
-                           WorldInfo{name, seed, timeOfDay, mode, entry.path()});
+        found.emplace_back(entry.last_write_time(ec), std::move(info));
     }
     std::sort(found.begin(), found.end(),
               [](const auto& a, const auto& b) { return a.first > b.first; });
@@ -125,10 +133,15 @@ WorldInfo create(const std::filesystem::path& savesRoot, std::string_view name,
 
 void saveMeta(const WorldInfo& info) {
     std::ofstream meta(info.directory / kMetaFile, std::ios::trunc);
-    meta << kMetaPrefix << 3 << '\n'
+    meta << kMetaPrefix << 4 << '\n'
          << info.seed << '\n'
          << info.timeOfDay << '\n'
          << (info.mode == GameMode::Survival ? "survival" : "creative") << '\n';
+    if (info.hasPlayer) {
+        meta << info.playerX << ' ' << info.playerY << ' ' << info.playerZ << ' ' << info.yaw
+             << ' ' << info.pitch << ' ' << info.health << ' ' << info.hunger << ' '
+             << info.saturation << ' ' << info.exhaustion << ' ' << info.air << '\n';
+    }
     if (!meta) {
         logError(std::format("failed to write world.meta for '{}'", info.name));
     }
