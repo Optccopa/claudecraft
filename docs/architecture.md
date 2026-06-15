@@ -49,8 +49,9 @@ remembers the return state and picks the backdrop (panning menu world vs the
 frozen game world). Values are defined in `app/Settings` (persisted to
 `settings.txt` in the data dir, clamped on load, saved on leaving the screen)
 and applied live when clicked, across four tabs: VIDEO (render distance
-restreams the world, FOV updates the camera, vsync/fullscreen to GLFW, smooth
-lighting remeshes via `World::setSmoothLighting`), CONTROLS (sensitivity/
+restreams the world, FOV updates the camera, vsync/fullscreen to GLFW, max-fps
+caps the loop, smooth lighting remeshes via `World::setSmoothLighting`),
+CONTROLS (sensitivity/
 invert-Y + rebinds), PACKS (resource-pack stack, see [rendering.md](rendering.md))
 and CHEATS (player speed → `Player::setSpeedMultiplier`, block reach → the
 raycast). A new setting needs: a `Settings` field + load/save line, a
@@ -86,11 +87,14 @@ state update:
     gameplay input → fixed-step physics (accumulator) → World::update
     → renderer uploads/removals → 3D render → HUD batch
 hud.flush (single draw)
-swapBuffers → title-bar stats
+swapBuffers → frame cap → title-bar stats
 ```
 
-Physics runs at a fixed 1/60 s; rendering is uncapped and interpolates the
-player position by `accumulator / dt` (`Player::eyePosition(alpha)`).
+Physics runs at a fixed 1/60 s; rendering is uncapped by default and
+interpolates the player position by `accumulator / dt`
+(`Player::eyePosition(alpha)`). The `maxFps` setting (0 = unlimited, else
+30..540) paces the loop with a sleep-then-spin limiter after `swapBuffers`,
+skipped when vsync already paces.
 Frame gaps are clamped to 0.25 s so a debugger pause doesn't spiral the
 accumulator. Look (yaw/pitch) updates at render rate for latency; movement
 intent is sampled into `PlayerInput` and applied in the fixed step.

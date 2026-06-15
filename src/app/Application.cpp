@@ -8,10 +8,12 @@
 #include <glad/glad.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <format>
 #include <random>
 #include <span>
+#include <thread>
 #include <utility>
 
 namespace cc {
@@ -44,6 +46,8 @@ constexpr float kMenuCamHeight = 24.0f;
 
 constexpr std::array<int, 7> kRenderDistanceOptions{4, 6, 8, 10, 12, 14, 16};
 constexpr std::array<int, 7> kFovOptions{60, 70, 75, 80, 90, 100, 110};
+// Frame-cap presets; 0 (last) is unlimited, so cycling lands on 540 then off.
+constexpr std::array<int, 9> kMaxFpsOptions{30, 60, 120, 144, 165, 240, 360, 540, 0};
 
 constexpr std::array<BlockType, Inventory::HotbarSize> kCreativePalette{
     BlockType::Stone, BlockType::Dirt,  BlockType::Grass,
@@ -1107,6 +1111,12 @@ void Application::updateSettings(float frameDt, const glm::ivec2& fbSize) {
             m_window.setVsync(m_settings.vsync);
         }
         rowY -= kRowStep;
+        if (settingRow(fbSize, rowY, "MAX FPS",
+                       m_settings.maxFps == 0 ? std::string{"UNLIMITED"}
+                                              : std::format("{}", m_settings.maxFps))) {
+            m_settings.maxFps = cycleOption(m_settings.maxFps, kMaxFpsOptions);
+        }
+        rowY -= kRowStep;
         if (settingRow(fbSize, rowY, "FULLSCREEN", m_settings.fullscreen ? "ON" : "OFF")) {
             m_settings.fullscreen = !m_settings.fullscreen;
             m_window.setFullscreen(m_settings.fullscreen);
@@ -1376,6 +1386,19 @@ void Application::run() {
         }
 
         m_window.swapBuffers();
+
+        // Frame cap (vsync already paces when on). Sleep the bulk of the
+        // remaining budget, then spin the last millisecond for tight pacing.
+        if (m_settings.maxFps > 0 && !m_settings.vsync) {
+            const double target = 1.0 / static_cast<double>(m_settings.maxFps);
+            const double remaining = target - (glfwGetTime() - now);
+            if (remaining > 0.0015) {
+                std::this_thread::sleep_for(std::chrono::duration<double>(remaining - 0.001));
+            }
+            while (glfwGetTime() - now < target) {
+            }
+        }
+
         updateTitle(now);
     }
 

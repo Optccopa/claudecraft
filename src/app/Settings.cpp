@@ -90,6 +90,8 @@ Settings Settings::load(const std::filesystem::path& path) {
             parts >> settings.renderDistance;
         } else if (key == "fovDeg") {
             parts >> settings.fovDeg;
+        } else if (key == "maxFps") {
+            parts >> settings.maxFps;
         } else if (key == "vsync") {
             parts >> settings.vsync;
         } else if (key == "fullscreen") {
@@ -127,6 +129,9 @@ Settings Settings::load(const std::filesystem::path& path) {
     }
     settings.renderDistance = std::clamp(settings.renderDistance, 4, 16);
     settings.fovDeg = std::clamp(settings.fovDeg, 60, 110);
+    if (settings.maxFps != 0) {
+        settings.maxFps = std::clamp(settings.maxFps, 30, 540);
+    }
     settings.sensitivity = std::clamp(settings.sensitivity, 0.2f, 3.0f);
     settings.playerSpeed = std::clamp(settings.playerSpeed, 0.5f, 8.0f);
     settings.reach = std::clamp(settings.reach, 3.0f, 12.0f);
@@ -142,11 +147,11 @@ Settings Settings::load(const std::filesystem::path& path) {
 
 void Settings::save(const std::filesystem::path& path) const {
     std::ofstream file(path, std::ios::trunc);
-    file << std::format("renderDistance {}\nfovDeg {}\nvsync {:d}\nfullscreen {:d}\n"
+    file << std::format("renderDistance {}\nfovDeg {}\nmaxFps {}\nvsync {:d}\nfullscreen {:d}\n"
                         "smoothLighting {:d}\nsensitivity {}\ninvertY {:d}\n"
                         "playerSpeed {}\nreach {}\n",
-                        renderDistance, fovDeg, vsync, fullscreen, smoothLighting, sensitivity,
-                        invertY, playerSpeed, reach);
+                        renderDistance, fovDeg, maxFps, vsync, fullscreen, smoothLighting,
+                        sensitivity, invertY, playerSpeed, reach);
     for (const KeyEntry& entry : kKeyEntries) {
         file << entry.name << ' ' << keys.*entry.member << '\n';
     }

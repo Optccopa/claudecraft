@@ -1,7 +1,7 @@
 ---
 name: minecraftimprov
 description: >
-  Use BEFORE implementing any new system that affects gameplay mechanics. Pull
+  Use BEFORE starting any new feature that affects gameplay mechanics. Pull
   the real values and rules from minecraft.wiki first instead of guessing or
   approximating. Trigger whenever a vanilla game feature is being added or
   changed, even if the wiki is not mentioned. Not for engine, rendering, or

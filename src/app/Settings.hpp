@@ -33,6 +33,7 @@ struct Keybinds {
 struct Settings {
     int renderDistance = 12; // chunks, 4..16
     int fovDeg = 75;         // 60..110
+    int maxFps = 0;          // frame cap; 0 = unlimited, else 30..540
     bool vsync = false;
     bool fullscreen = false;
     bool smoothLighting = true; // per-corner AO + light vs flat per-face
