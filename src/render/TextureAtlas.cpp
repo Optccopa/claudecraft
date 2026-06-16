@@ -513,7 +513,7 @@ constexpr std::array<GuiTex, 7> kGuiTextures{{
 } // namespace
 
 std::optional<PackImage> loadPackImage(std::span<const std::filesystem::path> packs,
-                                       std::string_view assetPath) {
+                                       std::string_view assetPath, bool flip) {
     const std::string path{assetPath};
     for (const std::filesystem::path& packPath : packs) {
         const auto pack = ResourcePack::open(packPath);
@@ -527,7 +527,7 @@ std::optional<PackImage> loadPackImage(std::span<const std::filesystem::path> pa
         int w = 0;
         int h = 0;
         int channels = 0;
-        stbi_set_flip_vertically_on_load(1); // PNG rows are top-down; GL wants bottom-up
+        stbi_set_flip_vertically_on_load(flip ? 1 : 0);
         const std::unique_ptr<stbi_uc, decltype(&stbi_image_free)> data{
             stbi_load_from_memory(png->data(), static_cast<int>(png->size()), &w, &h, &channels, 4),
             &stbi_image_free};

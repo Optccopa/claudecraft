@@ -39,7 +39,7 @@ public:
 
 private:
     enum class GameState { Menu, Playing, Paused, Settings, Dead };
-    enum class MenuScreen { Main, Worlds };
+    enum class MenuScreen { Main, SelectWorld, CreateWorld, EditWorld, ConfirmDelete };
     enum class SettingsCategory { Video, Controls, Packs, Cheats };
 
     void enterMenu();
@@ -51,7 +51,16 @@ private:
     void updateMenu(float frameDt, const glm::ivec2& fbSize);
     void updateMenuBackdrop(float frameDt, const glm::ivec2& fbSize);
     void drawMainScreen(const glm::ivec2& fbSize);
-    void drawWorldsScreen(const glm::ivec2& fbSize);
+    void drawSelectWorldScreen(const glm::ivec2& fbSize);
+    void drawCreateWorldScreen(const glm::ivec2& fbSize);
+    void drawEditWorldScreen(const glm::ivec2& fbSize);
+    void drawConfirmDeleteScreen(const glm::ivec2& fbSize);
+    void enterSelectWorld();
+    // One labelled text-entry box: label above, value with a blinking caret when
+    // focused or a placeholder when empty. Returns true if clicked this frame.
+    [[nodiscard]] bool entryBox(const glm::ivec2& fbSize, float x, float topY, float w, float h,
+                                std::string_view label, const std::string& value,
+                                std::string_view placeholder, bool focused);
     void updatePlaying(float frameDt, const glm::ivec2& fbSize, double& accumulator);
     void updatePaused(const glm::ivec2& fbSize);
     void updateSettings(float frameDt, const glm::ivec2& fbSize);
@@ -84,9 +93,10 @@ private:
                      const std::optional<glm::ivec3>& highlight);
     void saveWorldMeta();
 
-    // Immediate-mode button: draws into the HUD batch and reports a click.
+    // Immediate-mode button: draws into the HUD batch and reports a click. A
+    // disabled button renders greyed and never reports a click.
     [[nodiscard]] bool button(const glm::ivec2& fbSize, float centerX, float bottomY,
-                              std::string_view label, float width = 280.0f);
+                              std::string_view label, float width = 280.0f, bool enabled = true);
     [[nodiscard]] glm::vec2 mouseUiPosition(const glm::ivec2& fbSize) const noexcept;
 
     void updateTitle(double now);
@@ -119,7 +129,12 @@ private:
     double m_menuTime = 0.0;
 
     std::string m_nameField;
+    std::string m_seedField;                  // optional world seed entry
+    enum class CreateField { Name, Seed };
+    CreateField m_createFocus = CreateField::Name; // which entry box receives typing
     std::vector<WorldInfo> m_worlds;
+    int m_selectedWorld = -1;     // highlighted row in the select-world list
+    float m_worldScroll = 0.0f;   // pixel scroll offset of the world list
     WorldInfo m_currentWorld;
     bool m_showDebug = false;
     bool m_showChunkBorders = false;

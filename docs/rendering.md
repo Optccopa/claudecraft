@@ -1,8 +1,9 @@
 # Rendering
 
-GL 3.3 core, four shader pairs (`shaders/`): `chunk` (world geometry),
-`entity` (mobs), `hud` (2D overlay), `lines` (block highlight). All GL state
-changes funnel through `Renderer` and `Hud` on the main thread.
+GL 3.3 core, five shader pairs (`shaders/`): `chunk` (world geometry),
+`entity` (mobs + viewmodel arm), `cloud` (sky layer), `hud` (2D overlay),
+`lines` (block highlight). All GL state changes funnel through `Renderer` and
+`Hud` on the main thread.
 
 ## Frame composition
 
@@ -10,10 +11,23 @@ changes funnel through `Renderer` and `Hud` on the main thread.
 clear (sky color == fog color, so fogged geometry vanishes seamlessly)
 opaque chunk pass     cull back, depth test+write, near-to-far (early-Z)
 water chunk pass      blend, depth write OFF, far-to-near chunk order
+clouds                camera-centred quad, blend, depth test on / write off
 drops + mobs          entity boxes / drop cubes, depth test+write
 block highlight       inflated line cube (no z-fight against faces)
+viewmodel             held block / arm in view space, depth cleared first
 HUD                   one batched draw; depth + cull OFF, blend ON
 ```
+
+`drawClouds` is a single large quad the `cloud` shader recentres on the camera
+each frame; coverage is a hashed blocky field drifting on the wind, fading into
+fog at the rim so the finite quad has no edge (height 192, like vanilla).
+
+`drawViewmodel` renders the first-person hand in view space (camera at the
+origin, so the projection alone is the MVP) after clearing depth so it overlays
+the scene. Holding an item draws its drop cube offset to the lower-right —
+perspective off-centre reveals three faces without an explicit tilt; empty-
+handed draws a skin-toned arm box (the entity shader's flat path). The block
+replaces the hand, matching Minecraft.
 
 Mobs use a separate `entity` shader (`Renderer::drawMobs`). `render()` caches
 the frame's view-projection, fog, sun and sky-light; `drawMobs` reuses them so

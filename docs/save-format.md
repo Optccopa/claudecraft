@@ -35,7 +35,12 @@ legacy pre-meta directories named `world_<seed>` are recognised by name.
 Anything else (e.g. the menu backdrop's never-written `saves/.menu` path) is
 ignored. Directory names are sanitised display names (`[A-Za-z0-9_-]`,
 spaces → `_`, ≤24 chars) and deduplicated with `_2`, `_3`, … suffixes —
-the name is the world's identity, the seed lives only in the meta.
+the name is the world's identity, the seed lives only in the meta. Each
+`WorldInfo` also carries the directory's `last_write_time` (`lastPlayed`),
+surfaced as the world list's "last played" detail. `worldlist::rename`
+re-sanitises/dedups, `std::filesystem::rename`s the directory, and rewrites
+its meta; `worldlist::remove` `remove_all`s the directory — both irreversible
+and gated behind UI confirmation for delete.
 
 ## Chunk files
 

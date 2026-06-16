@@ -9,11 +9,17 @@ tasks fail with "'cl' is not recognized").
 ```
 1. mkdir build\{debug|release}            (cmd "if not exist" guard)
 2. cl /w /O2 /c glad.c → build\glad.obj   (only if the obj is missing)
-3. cl <all src wildcards> build\glad.obj → claudecraft.exe
+3. rc /fo build\app.res app.rc            (exe icon resource)
+4. cl <all src wildcards> build\glad.obj build\app.res → claudecraft.exe
 ```
 
 Step 2 exists because glad.c is C and third-party — it compiles once at /w
 (silent) and links forever after. Delete `build/glad.obj` to force a rebuild.
+
+Step 3 compiles `app.rc` (which references `images/claudecraft.ico`) into
+`build\app.res`, linked in step 4 so Explorer/taskbar show the app icon on the
+exe itself. The in-window icon is set separately at runtime
+(`Window::setIcon`, from `images/claudecraft.png`).
 
 Key flags and why they're there:
 

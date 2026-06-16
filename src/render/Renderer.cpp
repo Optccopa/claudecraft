@@ -186,6 +186,7 @@ Renderer::Renderer()
     : m_chunkShader{gl::ShaderProgram::fromFiles("shaders/chunk.vert", "shaders/chunk.frag")},
       m_lineShader{gl::ShaderProgram::fromFiles("shaders/lines.vert", "shaders/lines.frag")},
       m_entityShader{gl::ShaderProgram::fromFiles("shaders/entity.vert", "shaders/entity.frag")},
+      m_cloudShader{gl::ShaderProgram::fromFiles("shaders/cloud.vert", "shaders/cloud.frag")},
       m_atlas{TextureAtlas::create()} {
     m_highlightVao.bind();
     glBindBuffer(GL_ARRAY_BUFFER, m_highlightVbo.id());
@@ -210,6 +211,19 @@ Renderer::Renderer()
     glBindVertexArray(0);
 
     loadMobTextures({}); // build the per-type meshes; no skins until a pack loads
+
+    // Cloud plane: one large quad in x/z; the shader centres it on the camera.
+    constexpr float kCloudHalf = 1024.0f;
+    const std::array<float, 12> cloudQuad{-kCloudHalf, -kCloudHalf, kCloudHalf,  -kCloudHalf,
+                                          kCloudHalf,  kCloudHalf,  -kCloudHalf, -kCloudHalf,
+                                          kCloudHalf,  kCloudHalf,  -kCloudHalf, kCloudHalf};
+    m_cloudVao.bind();
+    glBindBuffer(GL_ARRAY_BUFFER, m_cloudVbo.id());
+    glBufferData(GL_ARRAY_BUFFER, sizeof(cloudQuad), cloudQuad.data(), GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float),
+                          reinterpret_cast<const void*>(0));
+    glBindVertexArray(0);
 
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
@@ -581,6 +595,82 @@ void Renderer::drawMobs(std::span<const MobDraw> mobs) {
                 glDrawArrays(GL_TRIANGLES, 0, 36);
             }
         }
+    }
+    glBindVertexArray(0);
+}
+
+void Renderer::drawClouds(const glm::vec3& cameraPos, float time) {
+    constexpr float kCloudHeight = 192.0f; // vanilla cloud altitude
+    m_cloudShader.use();
+    m_cloudShader.setMat4("uViewProj", m_frameViewProj);
+    m_cloudShader.setVec3("uOrigin", glm::vec3{cameraPos.x, kCloudHeight, cameraPos.z});
+    m_cloudShader.setFloat("uTime", time);
+    m_cloudShader.setVec3("uFogColor", m_frameFogColor);
+    m_cloudShader.setFloat("uFogStart", m_frameFogStart);
+    m_cloudShader.setFloat("uFogEnd", m_frameFogEnd);
+    m_cloudShader.setFloat("uOpacity", 0.8f);
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDepthMask(GL_FALSE); // clouds don't occlude; terrain still depth-tests them
+    glDisable(GL_CULL_FACE);
+    m_cloudVao.bind();
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glEnable(GL_CULL_FACE);
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    glBindVertexArray(0);
+}
+
+void Renderer::drawViewmodel(const glm::mat4& projection, std::optional<BlockType> held,
+                             float bob) {
+    // The viewmodel lives in view space (camera at the origin looking -z), so
+    // the projection alone is the view-projection. Depth is cleared first so it
+    // always draws over the world, like a HUD element with real geometry.
+    glClear(GL_DEPTH_BUFFER_BIT);
+
+    if (held.has_value()) {
+        // Held block: the drop cube, offset to the lower-right. Perspective off
+        // the screen centre reveals its top and side faces without an explicit
+        // tilt, reading as a held 3D block.
+        m_chunkShader.use();
+        m_chunkShader.setMat4("uViewProj", projection);
+        m_chunkShader.setFloat("uScale", 0.5f);
+        m_chunkShader.setFloat("uCenter", 0.5f);
+        m_chunkShader.setFloat("uLightScale", 0.95f);
+        m_chunkShader.setFloat("uAlpha", 1.0f);
+        m_chunkShader.setVec3("uChunkOrigin", glm::vec3{0.50f, -0.45f + bob, -0.80f});
+        m_atlas.bind(0);
+        const GpuMesh& mesh = dropMesh(*held);
+        mesh.vao.bind();
+        glDrawElements(GL_TRIANGLES, mesh.indexCount, GL_UNSIGNED_INT, nullptr);
+        m_chunkShader.setFloat("uScale", 1.0f);
+        m_chunkShader.setFloat("uCenter", 0.0f);
+        m_chunkShader.setFloat("uLightScale", 1.0f);
+    } else {
+        // Bare arm: a skin-toned box angled up from the lower-right corner.
+        m_entityShader.use();
+        m_entityShader.setMat4("uViewProj", projection);
+        m_entityShader.setVec3("uSunDir", m_frameSunDir);
+        m_entityShader.setVec3("uFogColor", m_frameFogColor);
+        m_entityShader.setFloat("uFogStart", m_frameFogStart);
+        m_entityShader.setFloat("uFogEnd", m_frameFogEnd);
+        m_entityShader.setInt("uTextured", 0);
+        m_entityShader.setFloat("uLightScale", 0.95f);
+        m_entityShader.setFloat("uHurt", 0.0f);
+        m_entityShader.setVec3("uColor", glm::vec3{0.86f, 0.66f, 0.53f});
+        // Forearm in view space (camera at the origin looking -z). The box's
+        // +y end is tilted up and into the screen (-z) so the elbow sits off the
+        // lower-right corner and the hand angles toward the crosshair, instead
+        // of lying flat across the view.
+        glm::mat4 model{1.0f};
+        model = glm::translate(model, glm::vec3{0.66f, -0.50f + bob, -0.48f});
+        model = glm::rotate(model, glm::radians(20.0f), glm::vec3{0.0f, 0.0f, 1.0f});
+        model = glm::rotate(model, glm::radians(-50.0f), glm::vec3{1.0f, 0.0f, 0.0f});
+        model = glm::scale(model, glm::vec3{0.22f, 0.80f, 0.22f});
+        m_entityShader.setMat4("uModel", model);
+        m_mobCubeVao.bind();
+        glDrawArrays(GL_TRIANGLES, 0, 36);
     }
     glBindVertexArray(0);
 }

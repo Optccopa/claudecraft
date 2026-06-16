@@ -66,6 +66,16 @@ public:
     // by the last render() call.
     void drawMobs(std::span<const MobDraw> mobs);
 
+    // Drifting cloud layer at a fixed height, centred on the camera so it reads
+    // as infinite; far cells fade into fog. Call after render().
+    void drawClouds(const glm::vec3& cameraPos, float time);
+
+    // First-person viewmodel: the held block in hand, or the bare arm when
+    // empty (like Minecraft, the block replaces the hand). Clears depth so it
+    // sits over the scene; call last, before the HUD. `bob` is a small vertical
+    // offset for the idle sway.
+    void drawViewmodel(const glm::mat4& projection, std::optional<BlockType> held, float bob);
+
     // Block-breaking crack overlay on the targeted block (stage 0..9). Call
     // after render(); reuses the frame's chunk-shader state.
     void drawBlockBreak(const glm::ivec3& block, int stage);
@@ -124,6 +134,7 @@ private:
     gl::ShaderProgram m_chunkShader;
     gl::ShaderProgram m_lineShader;
     gl::ShaderProgram m_entityShader;
+    gl::ShaderProgram m_cloudShader;
     TextureAtlas m_atlas;
     std::unordered_map<ChunkCoord, ChunkMeshes, ChunkCoordHash> m_chunks;
     std::unordered_map<BlockType, GpuMesh> m_dropMeshes; // built lazily per type
@@ -139,6 +150,8 @@ private:
     gl::Buffer m_chunkBorderVbo;
     gl::VertexArray m_mobCubeVao; // unit cube (pos+normal+uv) for flat-shaded boxes
     gl::Buffer m_mobCubeVbo;
+    gl::VertexArray m_cloudVao; // large flat quad for the cloud plane
+    gl::Buffer m_cloudVbo;
 
     // Per-mob-type textured model: one mesh per texture layer plus its skin.
     struct MobMesh {

@@ -101,7 +101,8 @@ std::vector<WorldInfo> list(const std::filesystem::path& savesRoot) {
         if (!readMeta(entry.path(), info) && !parseLegacyName(name, info.seed)) {
             continue;
         }
-        found.emplace_back(entry.last_write_time(ec), std::move(info));
+        info.lastPlayed = entry.last_write_time(ec);
+        found.emplace_back(info.lastPlayed, std::move(info));
     }
     std::sort(found.begin(), found.end(),
               [](const auto& a, const auto& b) { return a.first > b.first; });
@@ -144,6 +145,41 @@ void saveMeta(const WorldInfo& info) {
     }
     if (!meta) {
         logError(std::format("failed to write world.meta for '{}'", info.name));
+    }
+}
+
+WorldInfo rename(const WorldInfo& info, std::string_view newName) {
+    const std::filesystem::path savesRoot = info.directory.parent_path();
+    const std::string base = sanitize(newName);
+    if (base == info.name) {
+        return info;
+    }
+    std::string dirName = base;
+    for (int suffix = 2; std::filesystem::exists(savesRoot / dirName); ++suffix) {
+        dirName = std::format("{}_{}", base, suffix);
+    }
+
+    WorldInfo renamed = info;
+    renamed.name = dirName;
+    renamed.directory = savesRoot / dirName;
+    std::error_code ec;
+    std::filesystem::rename(info.directory, renamed.directory, ec);
+    if (ec) {
+        logError(std::format("failed to rename world '{}' -> '{}'", info.name, dirName));
+        return info;
+    }
+    saveMeta(renamed);
+    logInfo(std::format("renamed world '{}' -> '{}'", info.name, dirName));
+    return renamed;
+}
+
+void remove(const WorldInfo& info) {
+    std::error_code ec;
+    std::filesystem::remove_all(info.directory, ec);
+    if (ec) {
+        logError(std::format("failed to delete world '{}'", info.name));
+    } else {
+        logInfo(std::format("deleted world '{}'", info.name));
     }
 }
 

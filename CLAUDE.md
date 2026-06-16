@@ -70,6 +70,17 @@ Write clean, production-ready C++. No AI slop. This is a real codebase a senior 
 - Docs state behavior, invariants, and the *why* — no filler, no tutorials, no restating code. Same bar as comments.
 - Format changes (save files, vertex layouts, packed bitfields) must update the corresponding tables — those tables are the spec.
 
+## Testing — required before declaring done
+
+After any feature or visible behavior change, **stop and ask the user to test it in-game.** Do not declare the task complete based on build success or log output alone. Log output confirms compilation; only human eyes in the running game confirm correctness.
+
+Ask the user to:
+1. Build and run (**Provide a one line command**)
+2. Exercise the specific feature or affected area.
+3. Report what they see.
+
+Wait for their confirmation before closing the task. If they find a problem, fix it and ask them to test again.
+
 ## Definition of done
 
 A change is done only when:
@@ -81,6 +92,7 @@ A change is done only when:
 - Nothing on the forbidden list is present.
 - The matching doc in `docs/` is still accurate.
 - It runs without GL debug errors and holds 60+ FPS at a 12-chunk render distance.
+- **The user has tested it in-game and confirmed it works.**
 
 ## Maintenance
 

@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <filesystem>
 #include <format>
 #include <random>
 #include <span>
@@ -23,13 +24,13 @@ constexpr double kFixedDt = 1.0 / 60.0;
 constexpr float kEditRepeatDelay = 0.22f;
 constexpr float kMouseSensitivity = 0.09f;
 constexpr double kDayLengthSeconds = 600.0;
-constexpr double kMenuTimeOfDay = 0.5; // Claude-colored sunset for menu backdrop
+constexpr double kMenuTimeOfDay = 0.35; // Time int for menu backdrop
 
 constexpr float kButtonWidth = 280.0f;
 constexpr float kButtonHeight = 52.0f;
 constexpr float kButtonTextScale = 3.0f;
-constexpr std::size_t kMaxListedWorlds = 5;
 constexpr std::size_t kMaxNameLength = 24;
+constexpr std::size_t kMaxSeedLength = 20;
 
 constexpr float kMenuPanSpeed = 3.0f;
 constexpr float kMenuCamHeight = 24.0f;
@@ -139,6 +140,65 @@ constexpr bool kDebugBuild = true;
     return std::random_device{}();
 }
 
+// Minecraft-style seed parse: empty -> random; an integer (optionally signed)
+// is used directly; anything else hashes to a deterministic value so the same
+// text always yields the same world.
+[[nodiscard]] std::uint32_t seedFromInput(const std::string& text) {
+    if (text.empty()) {
+        return randomSeed();
+    }
+    std::size_t consumed = 0;
+    try {
+        const long long value = std::stoll(text, &consumed);
+        if (consumed == text.size()) {
+            return static_cast<std::uint32_t>(value);
+        }
+    } catch (const std::exception&) {
+        // not an integer — fall through to the string hash
+    }
+    std::uint32_t hash = 2166136261u; // FNV-1a
+    for (const char c : text) {
+        hash = (hash ^ static_cast<std::uint8_t>(c)) * 16777619u;
+    }
+    return hash;
+}
+
+// Title-cases a label (first letter of each word upper, rest lower) so button
+// text reads "Create World" rather than the source "CREATE WORLD". ASCII only,
+// which is all the UI uses.
+[[nodiscard]] std::string titleCase(std::string_view s) {
+    std::string out{s};
+    bool startWord = true;
+    for (char& c : out) {
+        if (c >= 'A' && c <= 'Z') {
+            if (!startWord) {
+                c = static_cast<char>(c - 'A' + 'a');
+            }
+            startWord = false;
+        } else if (c >= 'a' && c <= 'z') {
+            if (startWord) {
+                c = static_cast<char>(c - 'a' + 'A');
+            }
+            startWord = false;
+        } else {
+            startWord = (c == ' ');
+        }
+    }
+    return out;
+}
+
+// "Last played" detail line: the save directory's write time in local time. An
+// epoch value (in-memory worlds) reads as never played.
+[[nodiscard]] std::string formatPlayed(std::filesystem::file_time_type t) {
+    if (t == std::filesystem::file_time_type{}) {
+        return "Never played";
+    }
+    const auto sys = std::chrono::clock_cast<std::chrono::system_clock>(t);
+    const std::chrono::zoned_time local{std::chrono::current_zone(),
+                                        std::chrono::floor<std::chrono::minutes>(sys)};
+    return std::format("{:%Y-%m-%d %H:%M}", local);
+}
+
 } // namespace
 
 Application::Application()
@@ -154,6 +214,7 @@ Application::Application()
     if (kDebugBuild) {
         gl::enableDebugOutput();
     }
+    m_window.setIcon("images/claudecraft.png");
     m_window.setVsync(m_settings.vsync);
     m_window.setFullscreen(m_settings.fullscreen);
     logInfo(std::format("{} workers", m_pool.threadCount()));
@@ -254,6 +315,8 @@ void Application::applyResourcePacks() {
         }
     }
     m_renderer.setResourcePacks(packPaths);
+    m_hud.setFont(packPaths);
+    m_hud.setGuiSprites(packPaths);
 }
 
 void Application::setPaused(bool paused) {
@@ -278,20 +341,18 @@ glm::vec2 Application::mouseUiPosition(const glm::ivec2& fbSize) const noexcept 
 }
 
 bool Application::button(const glm::ivec2& fbSize, float centerX, float bottomY,
-                         std::string_view label, float width) {
+                         std::string_view label, float width, bool enabled) {
     const float x = centerX - width * 0.5f;
     const glm::vec2 mouse = mouseUiPosition(fbSize);
-    const bool hovered = mouse.x >= x && mouse.x <= x + width && mouse.y >= bottomY &&
+    const bool hovered = enabled && mouse.x >= x && mouse.x <= x + width && mouse.y >= bottomY &&
                          mouse.y <= bottomY + kButtonHeight;
 
-    if (hovered) {
-        m_hud.rect(x - 3.0f, bottomY - 3.0f, width + 6.0f, kButtonHeight + 6.0f,
-                   Hud::RectStyle::Bright);
-    }
-    m_hud.rect(x, bottomY, width, kButtonHeight, Hud::RectStyle::Dim);
-    const float textW = Hud::textWidth(label, kButtonTextScale);
+    const int state = !enabled ? 2 : hovered ? 1 : 0;
+    m_hud.buttonPatch(x, bottomY, width, kButtonHeight, state);
+    const std::string shown = titleCase(label);
+    const float textW = m_hud.textWidth(shown, kButtonTextScale);
     m_hud.text(centerX - textW * 0.5f, bottomY + kButtonHeight * 0.5f + 4.0f * kButtonTextScale,
-               kButtonTextScale, label);
+               kButtonTextScale, shown);
 
     return hovered && m_input.wasMousePressed(GLFW_MOUSE_BUTTON_LEFT);
 }
@@ -529,10 +590,22 @@ void Application::updateMenuBackdrop(float frameDt, const glm::ivec2& fbSize) {
 void Application::updateMenu(float frameDt, const glm::ivec2& fbSize) {
     updateMenuBackdrop(frameDt, fbSize);
 
-    if (m_menuScreen == MenuScreen::Main) {
+    switch (m_menuScreen) {
+    case MenuScreen::Main:
         drawMainScreen(fbSize);
-    } else {
-        drawWorldsScreen(fbSize);
+        break;
+    case MenuScreen::SelectWorld:
+        drawSelectWorldScreen(fbSize);
+        break;
+    case MenuScreen::CreateWorld:
+        drawCreateWorldScreen(fbSize);
+        break;
+    case MenuScreen::EditWorld:
+        drawEditWorldScreen(fbSize);
+        break;
+    case MenuScreen::ConfirmDelete:
+        drawConfirmDeleteScreen(fbSize);
+        break;
     }
 }
 
@@ -540,13 +613,11 @@ void Application::drawMainScreen(const glm::ivec2& fbSize) {
     const auto width = static_cast<float>(fbSize.x);
     const auto height = static_cast<float>(fbSize.y);
     const float titleScale = 9.0f;
-    const float titleW = Hud::textWidth("CLAUDECRAFT", titleScale);
+    const float titleW = m_hud.textWidth("CLAUDECRAFT", titleScale);
     m_hud.text(width * 0.5f - titleW * 0.5f, height * 0.78f, titleScale, "CLAUDECRAFT");
 
     if (button(fbSize, width * 0.5f, height * 0.45f, "PLAY")) {
-        m_worlds = worldlist::list(m_dataRoot / "saves");
-        m_nameField.clear();
-        m_menuScreen = MenuScreen::Worlds;
+        enterSelectWorld();
         return;
     }
     if (button(fbSize, width * 0.5f, height * 0.45f - kButtonHeight - 18.0f, "SETTINGS")) {
@@ -558,13 +629,188 @@ void Application::drawMainScreen(const glm::ivec2& fbSize) {
     }
 }
 
-void Application::drawWorldsScreen(const glm::ivec2& fbSize) {
+void Application::enterSelectWorld() {
+    m_worlds = worldlist::list(m_dataRoot / "saves");
+    m_selectedWorld = m_worlds.empty() ? -1 : 0;
+    m_worldScroll = 0.0f;
+    m_menuScreen = MenuScreen::SelectWorld;
+}
+
+bool Application::entryBox(const glm::ivec2& fbSize, float x, float topY, float w, float h,
+                          std::string_view label, const std::string& value,
+                          std::string_view placeholder, bool focused) {
+    m_hud.text(x, topY + h + 22.0f, 2.0f, label);
+    m_hud.rect(x, topY, w, h, focused ? Hud::RectStyle::Bright : Hud::RectStyle::Dim);
+    std::string shown = value;
+    if (focused && std::fmod(m_menuTime, 1.0) < 0.5) {
+        shown.push_back('|');
+    } else if (value.empty()) {
+        shown = std::string{placeholder};
+    }
+    m_hud.text(x + 12.0f, topY + h * 0.5f + 4.0f * 2.5f, 2.5f, shown);
+    const glm::vec2 mouse = mouseUiPosition(fbSize);
+    return mouse.x >= x && mouse.x <= x + w && mouse.y >= topY && mouse.y <= topY + h &&
+           m_input.wasMousePressed(GLFW_MOUSE_BUTTON_LEFT);
+}
+
+void Application::drawSelectWorldScreen(const glm::ivec2& fbSize) {
     const auto width = static_cast<float>(fbSize.x);
     const auto height = static_cast<float>(fbSize.y);
     const float centerX = width * 0.5f;
 
-    // Name entry: typed characters append, backspace erases (key repeat
-    // included), ENTER creates.
+    const float titleScale = 4.0f;
+    m_hud.text(centerX - m_hud.textWidth("Select World", titleScale) * 0.5f, height - 48.0f,
+               titleScale, "Select World");
+
+    // Two action rows pinned to the bottom; the scrollable list fills the band
+    // between them and the title.
+    const float rowBottomY = 24.0f;
+    const float rowTopY = rowBottomY + kButtonHeight + 12.0f;
+    const float listBottom = rowTopY + kButtonHeight + 28.0f;
+    const float listTop = height - 96.0f;
+
+    const float rowW = std::min(760.0f, width - 80.0f);
+    const float rowX = centerX - rowW * 0.5f;
+    constexpr float kRowHeight = 72.0f;
+    constexpr float kRowStride = 80.0f;
+    const float maxScroll =
+        std::max(0.0f, static_cast<float>(m_worlds.size()) * kRowStride - (listTop - listBottom));
+    m_worldScroll = std::clamp(m_worldScroll - m_input.scrollDelta() * 36.0f, 0.0f, maxScroll);
+
+    const glm::vec2 mouse = mouseUiPosition(fbSize);
+    for (std::size_t i = 0; i < m_worlds.size(); ++i) {
+        const float top = listTop + m_worldScroll - static_cast<float>(i) * kRowStride;
+        const float bottom = top - kRowHeight;
+        // Cheap clip without scissor: skip rows not fully inside the band so a
+        // half-row never bleeds over the title or the action buttons.
+        if (top > listTop + 0.5f || bottom < listBottom - 0.5f) {
+            continue;
+        }
+        const bool selected = static_cast<int>(i) == m_selectedWorld;
+        m_hud.rect(rowX, bottom, rowW, kRowHeight,
+                   selected ? Hud::RectStyle::Bright : Hud::RectStyle::Dim);
+        const float pad = 6.0f;
+        const float thumb = kRowHeight - 2.0f * pad;
+        m_hud.icon(rowX + pad, bottom + pad, thumb, blockInfo(BlockType::Grass).topTile);
+        const float textX = rowX + thumb + 2.0f * pad;
+        m_hud.text(textX, top - 16.0f, 2.5f, m_worlds[i].name);
+        const std::string detail =
+            std::format("{}  -  {}", formatPlayed(m_worlds[i].lastPlayed),
+                        m_worlds[i].mode == GameMode::Survival ? "Survival Mode" : "Creative Mode");
+        m_hud.text(textX, top - 46.0f, 1.5f, detail);
+        if (mouse.x >= rowX && mouse.x <= rowX + rowW && mouse.y >= bottom && mouse.y <= top &&
+            m_input.wasMousePressed(GLFW_MOUSE_BUTTON_LEFT)) {
+            m_selectedWorld = static_cast<int>(i);
+        }
+    }
+    if (m_worlds.empty()) {
+        const char* msg = "No worlds yet - create one below.";
+        m_hud.text(centerX - m_hud.textWidth(msg, 2.0f) * 0.5f, (listTop + listBottom) * 0.5f, 2.0f,
+                   msg);
+    }
+
+    const bool hasSel = m_selectedWorld >= 0 && m_selectedWorld < static_cast<int>(m_worlds.size());
+
+    const float wideW = std::min(360.0f, rowW * 0.5f - 8.0f);
+    if (button(fbSize, centerX - wideW * 0.5f - 8.0f, rowTopY, "Play Selected World", wideW,
+               hasSel) &&
+        hasSel) {
+        startGame(m_worlds[static_cast<std::size_t>(m_selectedWorld)]);
+        return;
+    }
+    if (button(fbSize, centerX + wideW * 0.5f + 8.0f, rowTopY, "Create New World", wideW)) {
+        m_nameField.clear();
+        m_seedField.clear();
+        m_createFocus = CreateField::Name;
+        m_menuScreen = MenuScreen::CreateWorld;
+        return;
+    }
+
+    const float thirdW = std::min(240.0f, rowW / 3.0f - 8.0f);
+    if (button(fbSize, centerX - thirdW - 12.0f, rowBottomY, "Edit", thirdW, hasSel) && hasSel) {
+        m_nameField = m_worlds[static_cast<std::size_t>(m_selectedWorld)].name;
+        m_createFocus = CreateField::Name;
+        m_menuScreen = MenuScreen::EditWorld;
+        return;
+    }
+    if (button(fbSize, centerX, rowBottomY, "Delete", thirdW, hasSel) && hasSel) {
+        m_menuScreen = MenuScreen::ConfirmDelete;
+        return;
+    }
+    if (button(fbSize, centerX + thirdW + 12.0f, rowBottomY, "Cancel", thirdW)) {
+        m_menuScreen = MenuScreen::Main;
+    }
+}
+
+void Application::drawCreateWorldScreen(const glm::ivec2& fbSize) {
+    const auto width = static_cast<float>(fbSize.x);
+    const auto height = static_cast<float>(fbSize.y);
+    const float centerX = width * 0.5f;
+
+    // Typed characters append to the focused field; backspace erases. Click a
+    // field to focus it; ENTER creates.
+    {
+        const bool toName = m_createFocus == CreateField::Name;
+        std::string& active = toName ? m_nameField : m_seedField;
+        const std::size_t maxLen = toName ? kMaxNameLength : kMaxSeedLength;
+        for (const char c : m_input.typedText()) {
+            if (active.size() < maxLen) {
+                active.push_back(c);
+            }
+        }
+        if (m_input.wasPressed(GLFW_KEY_BACKSPACE) && !active.empty()) {
+            active.pop_back();
+        }
+    }
+
+    const float titleScale = 4.0f;
+    m_hud.text(centerX - m_hud.textWidth("Create New World", titleScale) * 0.5f, height - 56.0f,
+               titleScale, "Create New World");
+
+    const float fieldW = 460.0f;
+    const float fieldH = 46.0f;
+    const float fieldX = centerX - fieldW * 0.5f;
+    const float nameY = height * 0.62f;
+    const float seedY = nameY - fieldH - 56.0f;
+    if (entryBox(fbSize, fieldX, nameY, fieldW, fieldH, "World Name", m_nameField, "World",
+                 m_createFocus == CreateField::Name)) {
+        m_createFocus = CreateField::Name;
+    }
+    if (entryBox(fbSize, fieldX, seedY, fieldW, fieldH, "Seed", m_seedField, "(random)",
+                 m_createFocus == CreateField::Seed)) {
+        m_createFocus = CreateField::Seed;
+    }
+
+    if (button(fbSize, centerX, seedY - 92.0f,
+               m_createMode == GameMode::Survival ? "Game Mode: Survival" : "Game Mode: Creative",
+               fieldW)) {
+        m_createMode =
+            m_createMode == GameMode::Survival ? GameMode::Creative : GameMode::Survival;
+    }
+
+    const float actW = fieldW * 0.5f - 8.0f;
+    const bool createClicked =
+        button(fbSize, centerX - actW * 0.5f - 8.0f, 64.0f, "Create New World", actW) ||
+        m_input.wasPressed(GLFW_KEY_ENTER);
+    if (createClicked) {
+        startGame(worldlist::create(m_dataRoot / "saves", m_nameField, seedFromInput(m_seedField),
+                                    m_createMode));
+        return;
+    }
+    if (button(fbSize, centerX + actW * 0.5f + 8.0f, 64.0f, "Cancel", actW)) {
+        enterSelectWorld();
+    }
+}
+
+void Application::drawEditWorldScreen(const glm::ivec2& fbSize) {
+    const auto width = static_cast<float>(fbSize.x);
+    const auto height = static_cast<float>(fbSize.y);
+    const float centerX = width * 0.5f;
+    if (m_selectedWorld < 0 || m_selectedWorld >= static_cast<int>(m_worlds.size())) {
+        m_menuScreen = MenuScreen::SelectWorld;
+        return;
+    }
+
     for (const char c : m_input.typedText()) {
         if (m_nameField.size() < kMaxNameLength) {
             m_nameField.push_back(c);
@@ -574,53 +820,53 @@ void Application::drawWorldsScreen(const glm::ivec2& fbSize) {
         m_nameField.pop_back();
     }
 
-    const float headerScale = 5.0f;
-    const float headerW = Hud::textWidth("CREATE WORLD", headerScale);
-    m_hud.text(centerX - headerW * 0.5f, height * 0.92f, headerScale, "CREATE WORLD");
+    const float titleScale = 4.0f;
+    m_hud.text(centerX - m_hud.textWidth("Edit World", titleScale) * 0.5f, height - 56.0f,
+               titleScale, "Edit World");
 
-    const float fieldW = 420.0f;
+    const float fieldW = 460.0f;
     const float fieldH = 46.0f;
-    const float fieldY = height * 0.92f - 90.0f;
-    m_hud.rect(centerX - fieldW * 0.5f, fieldY, fieldW, fieldH, Hud::RectStyle::Dim);
-    const bool cursorOn = std::fmod(m_menuTime, 1.0) < 0.5;
-    const std::string shown =
-        m_nameField.empty() ? std::string{cursorOn ? "|" : ""}
-                            : m_nameField + (cursorOn ? "|" : "");
-    m_hud.text(centerX - fieldW * 0.5f + 12.0f, fieldY + fieldH * 0.5f + 4.0f * 2.5f, 2.5f, shown);
+    static_cast<void>(entryBox(fbSize, centerX - fieldW * 0.5f, height * 0.55f, fieldW, fieldH,
+                               "World Name", m_nameField, "World", true));
 
-    if (button(fbSize, centerX, fieldY - kButtonHeight - 14.0f,
-               m_createMode == GameMode::Survival ? "MODE: SURVIVAL" : "MODE: CREATIVE")) {
-        m_createMode = m_createMode == GameMode::Survival ? GameMode::Creative
-                                                          : GameMode::Survival;
-    }
-    const bool createClicked =
-        button(fbSize, centerX, fieldY - 2.0f * (kButtonHeight + 14.0f), "CREATE") ||
-        m_input.wasPressed(GLFW_KEY_ENTER);
-    if (createClicked) {
-        startGame(
-            worldlist::create(m_dataRoot / "saves", m_nameField, randomSeed(), m_createMode));
+    const float actW = fieldW * 0.5f - 8.0f;
+    const bool save = button(fbSize, centerX - actW * 0.5f - 8.0f, 64.0f, "Save", actW) ||
+                      m_input.wasPressed(GLFW_KEY_ENTER);
+    if (save) {
+        WorldInfo& world = m_worlds[static_cast<std::size_t>(m_selectedWorld)];
+        world = worldlist::rename(world, m_nameField);
+        enterSelectWorld();
         return;
     }
-
-    float listY = fieldY - 3.0f * (kButtonHeight + 14.0f) - 64.0f;
-    if (!m_worlds.empty()) {
-        const float labelW = Hud::textWidth("LOAD WORLD", 3.5f);
-        m_hud.text(centerX - labelW * 0.5f, listY + kButtonHeight + 44.0f, 3.5f, "LOAD WORLD");
+    if (button(fbSize, centerX + actW * 0.5f + 8.0f, 64.0f, "Cancel", actW)) {
+        m_menuScreen = MenuScreen::SelectWorld;
     }
-    for (std::size_t i = 0; i < m_worlds.size() && i < kMaxListedWorlds; ++i) {
-        std::string label = m_worlds[i].name;
-        if (label.size() > 16) {
-            label.resize(16);
-        }
-        if (button(fbSize, centerX, listY - static_cast<float>(i) * (kButtonHeight + 12.0f),
-                   label)) {
-            startGame(m_worlds[i]);
-            return;
-        }
-    }
+}
 
-    if (button(fbSize, centerX, 24.0f, "BACK")) {
-        m_menuScreen = MenuScreen::Main;
+void Application::drawConfirmDeleteScreen(const glm::ivec2& fbSize) {
+    const auto width = static_cast<float>(fbSize.x);
+    const auto height = static_cast<float>(fbSize.y);
+    const float centerX = width * 0.5f;
+    if (m_selectedWorld < 0 || m_selectedWorld >= static_cast<int>(m_worlds.size())) {
+        m_menuScreen = MenuScreen::SelectWorld;
+        return;
+    }
+    const WorldInfo& world = m_worlds[static_cast<std::size_t>(m_selectedWorld)];
+
+    m_hud.rect(0.0f, 0.0f, width, height, Hud::RectStyle::Dim);
+    const char* prompt = "Delete this world?";
+    m_hud.text(centerX - m_hud.textWidth(prompt, 3.0f) * 0.5f, height * 0.62f, 3.0f, prompt);
+    const std::string sub = std::format("'{}' will be lost forever!", world.name);
+    m_hud.text(centerX - m_hud.textWidth(sub, 1.75f) * 0.5f, height * 0.62f - 44.0f, 1.75f, sub);
+
+    const float actW = 300.0f;
+    if (button(fbSize, centerX - actW * 0.5f - 8.0f, height * 0.40f, "Delete", actW)) {
+        worldlist::remove(world);
+        enterSelectWorld();
+        return;
+    }
+    if (button(fbSize, centerX + actW * 0.5f + 8.0f, height * 0.40f, "Cancel", actW)) {
+        m_menuScreen = MenuScreen::SelectWorld;
     }
 }
 
@@ -668,6 +914,7 @@ void Application::updatePlaying(float frameDt, const glm::ivec2& fbSize, double&
     renderWorld(*m_world, fbSize, renderEye, m_player.yaw(), m_player.pitch(),
                 fogEndFor(m_settings.renderDistance), sky,
                 target.hit ? std::optional<glm::ivec3>{target.block} : std::nullopt);
+    m_renderer.drawClouds(renderEye, static_cast<float>(m_renderClock));
     drawDrops(sky);
     drawMobs(sky);
     // Block-breaking crack overlay, advancing through the destroy stages as
@@ -682,6 +929,17 @@ void Application::updatePlaying(float frameDt, const glm::ivec2& fbSize, double&
     }
     if (underwater) {
         m_post.composite(static_cast<float>(m_renderClock));
+    }
+
+    // First-person hand / held block. A subtle idle bob; hidden while the
+    // inventory grid is open so it doesn't sit under the UI.
+    if (!m_inventoryOpen) {
+        const ItemStack& selected = m_inventory.slot(m_selectedSlot);
+        const float bob = 0.012f * std::sin(static_cast<float>(m_renderClock) * 2.4f);
+        m_renderer.drawViewmodel(m_camera.projection(),
+                                 selected.empty() ? std::nullopt
+                                                  : std::optional<BlockType>{selected.type},
+                                 bob);
     }
 
     m_hud.crosshair(fbSize);
@@ -796,7 +1054,7 @@ void Application::updateDead(const glm::ivec2& fbSize) {
     m_hud.rect(0.0f, 0.0f, width, height, Hud::RectStyle::Dim);
 
     const float titleScale = 6.0f;
-    const float titleW = Hud::textWidth("YOU DIED", titleScale);
+    const float titleW = m_hud.textWidth("YOU DIED", titleScale);
     m_hud.text(width * 0.5f - titleW * 0.5f, height * 0.68f, titleScale, "YOU DIED");
 
     if (button(fbSize, width * 0.5f, height * 0.42f, "RESPAWN")) {
@@ -892,7 +1150,7 @@ void Application::drawInventoryUi(const glm::ivec2& fbSize) {
 
     const bool creative = m_currentWorld.mode == GameMode::Creative;
     const float titleScale = 4.0f;
-    m_hud.text(width * 0.5f - Hud::textWidth("INVENTORY", titleScale) * 0.5f,
+    m_hud.text(width * 0.5f - m_hud.textWidth("INVENTORY", titleScale) * 0.5f,
                gridTop + (creative ? 290.0f : 70.0f), titleScale, "INVENTORY");
 
     const glm::vec2 mouse = mouseUiPosition(fbSize);
@@ -1057,7 +1315,7 @@ void Application::drawDebugOverlay(const glm::ivec2& fbSize, const RaycastHit& t
 
     float yTop = static_cast<float>(fbSize.y) - 10.0f;
     for (const std::string& line : lines) {
-        const float width = Hud::textWidth(line, kScale);
+        const float width = m_hud.textWidth(line, kScale);
         m_hud.rect(6.0f, yTop - kLineHeight + kPad, width + 2.0f * kPad, kLineHeight,
                    Hud::RectStyle::Dim);
         m_hud.text(6.0f + kPad, yTop, kScale, line);
@@ -1076,7 +1334,7 @@ void Application::updatePaused(const glm::ivec2& fbSize) {
     m_hud.rect(0.0f, 0.0f, width, height, Hud::RectStyle::Dim);
 
     const float titleScale = 6.0f;
-    const float titleW = Hud::textWidth("PAUSED", titleScale);
+    const float titleW = m_hud.textWidth("PAUSED", titleScale);
     m_hud.text(width * 0.5f - titleW * 0.5f, height * 0.7f, titleScale, "PAUSED");
 
     if (button(fbSize, width * 0.5f, height * 0.45f, "RESUME")) {
@@ -1101,7 +1359,7 @@ bool Application::settingRow(const glm::ivec2& fbSize, float bottomY, std::strin
                              std::string_view value) {
     const float centerX = static_cast<float>(fbSize.x) * 0.5f;
     constexpr float kLabelScale = 2.5f;
-    const float labelW = Hud::textWidth(label, kLabelScale);
+    const float labelW = m_hud.textWidth(label, kLabelScale);
     m_hud.text(centerX - 40.0f - labelW, bottomY + kButtonHeight * 0.5f + 4.0f * kLabelScale,
                kLabelScale, label);
     return button(fbSize, centerX + 170.0f, bottomY, value, 300.0f);
@@ -1111,7 +1369,7 @@ bool Application::keybindRow(const glm::ivec2& fbSize, float columnX, float bott
                              std::string_view label, std::string_view value) {
     constexpr float kLabelScale = 2.2f;
     constexpr float kButtonW = 190.0f;
-    const float labelW = Hud::textWidth(label, kLabelScale);
+    const float labelW = m_hud.textWidth(label, kLabelScale);
     m_hud.text(columnX - kButtonW * 0.5f - 16.0f - labelW,
                bottomY + kButtonHeight * 0.5f + 4.0f * kLabelScale, kLabelScale, label);
     return button(fbSize, columnX, bottomY, value, kButtonW);
@@ -1132,7 +1390,7 @@ void Application::updateSettings(float frameDt, const glm::ivec2& fbSize) {
     const float centerX = width * 0.5f;
 
     const float titleScale = 6.0f;
-    const float titleW = Hud::textWidth("SETTINGS", titleScale);
+    const float titleW = m_hud.textWidth("SETTINGS", titleScale);
     m_hud.text(centerX - titleW * 0.5f, height * 0.92f, titleScale, "SETTINGS");
 
     // Category tabs; the active one keeps a permanent highlight ring.
@@ -1401,10 +1659,18 @@ void Application::run() {
         if (m_input.wasPressed(GLFW_KEY_ESCAPE)) {
             switch (m_state) {
             case GameState::Menu:
-                if (m_menuScreen == MenuScreen::Worlds) {
-                    m_menuScreen = MenuScreen::Main;
-                } else {
+                switch (m_menuScreen) {
+                case MenuScreen::Main:
                     glfwSetWindowShouldClose(m_window.handle(), GLFW_TRUE);
+                    break;
+                case MenuScreen::SelectWorld:
+                    m_menuScreen = MenuScreen::Main;
+                    break;
+                case MenuScreen::CreateWorld:
+                case MenuScreen::EditWorld:
+                case MenuScreen::ConfirmDelete:
+                    m_menuScreen = MenuScreen::SelectWorld;
+                    break;
                 }
                 break;
             case GameState::Playing:

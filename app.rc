@@ -1,0 +1,4 @@
+// Windows resource script: the exe's file/taskbar icon. Explorer shows the
+// icon resource with the lowest id, so this is the app icon. Compiled by
+// rc.exe into app.res and linked into the executable (see .vscode/tasks.json).
+1 ICON "images/claudecraft.ico"

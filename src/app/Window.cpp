@@ -6,6 +6,8 @@
 
 #include <GLFW/glfw3.h>
 
+#include <stb_image.h>
+
 #include <format>
 #include <stdexcept>
 
@@ -73,6 +75,21 @@ void Window::swapBuffers() noexcept {
 
 void Window::setTitle(const std::string& title) noexcept {
     glfwSetWindowTitle(m_window, title.c_str());
+}
+
+void Window::setIcon(const char* pngPath) noexcept {
+    int width = 0;
+    int height = 0;
+    int channels = 0;
+    stbi_set_flip_vertically_on_load(0); // GLFW wants top-down rows
+    unsigned char* pixels = stbi_load(pngPath, &width, &height, &channels, 4);
+    if (pixels == nullptr) {
+        logError(std::format("window icon '{}' unreadable: {}", pngPath, stbi_failure_reason()));
+        return;
+    }
+    const GLFWimage image{width, height, pixels};
+    glfwSetWindowIcon(m_window, 1, &image);
+    stbi_image_free(pixels);
 }
 
 glm::ivec2 Window::size() const noexcept {

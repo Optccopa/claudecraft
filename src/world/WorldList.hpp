@@ -23,6 +23,9 @@ struct WorldInfo {
     float playerX = 0.0f, playerY = 0.0f, playerZ = 0.0f;
     float yaw = -90.0f, pitch = 0.0f;
     float health = 20.0f, hunger = 20.0f, saturation = 5.0f, exhaustion = 0.0f, air = 1.0f;
+    // Directory's last-write time, surfaced as the "last played" detail in the
+    // world list. Default-constructed (epoch) for worlds built in-memory.
+    std::filesystem::file_time_type lastPlayed{};
 };
 
 namespace worldlist {
@@ -39,6 +42,13 @@ namespace worldlist {
 
 // Rewrites world.meta with the info's current mutable state (time of day).
 void saveMeta(const WorldInfo& info);
+
+// Renames the world's directory (sanitised, suffixed on collision) and rewrites
+// its meta there, returning the updated info. A no-op name change returns a copy.
+[[nodiscard]] WorldInfo rename(const WorldInfo& info, std::string_view newName);
+
+// Deletes the world's directory and every save inside it. Irreversible.
+void remove(const WorldInfo& info);
 
 } // namespace worldlist
 } // namespace cc

@@ -28,12 +28,15 @@ Dependency rules (enforced by review, not tooling):
 
 ## Application state machine
 
-`Application::run` drives three states; `Menu` has two screens:
+`Application::run` drives three states; `Menu` has five screens:
 
 | State | World updated | Physics | Cursor | UI |
 |---|---|---|---|---|
-| `Menu`/Main | menu world (random seed, distance 8) | none | free | title + PLAY/QUIT |
-| `Menu`/Worlds | menu world | none | free | name field + CREATE + world list + BACK |
+| `Menu`/Main | menu world (random seed, distance 8) | none | free | title + PLAY/SETTINGS/QUIT |
+| `Menu`/SelectWorld | menu world | none | free | scrollable world list (thumb + name + last-played/mode) + Play Selected/Create New/Edit/Delete/Cancel |
+| `Menu`/CreateWorld | menu world | none | free | name + seed fields + game-mode toggle + Create New World/Cancel |
+| `Menu`/EditWorld | menu world | none | free | name field + Save/Cancel (renames the selected world) |
+| `Menu`/ConfirmDelete | menu world | none | free | dimmed prompt + Delete/Cancel |
 | `Playing` | selected world (settings distance) | fixed 60 Hz | captured | crosshair + hotbar |
 | `Paused` | selected world (streaming only) | frozen | free | overlay + RESUME/SETTINGS/QUIT TO MENU |
 | `Settings` | backdrop of wherever it was opened from | frozen | free | category tabs + value rows + BACK |
@@ -41,8 +44,8 @@ Dependency rules (enforced by review, not tooling):
 ESC transitions are handled once at the top of the frame, *before* the state
 runs — a single press must not be consumed by two states in one frame (pause
 then instantly resume). ESC walks back one level: Settings → where it was
-opened from; Worlds → Main → quit; Playing ⇄ Paused. Keep any new global
-hotkeys in that same block.
+opened from; CreateWorld/EditWorld/ConfirmDelete → SelectWorld → Main → quit;
+Playing ⇄ Paused. Keep any new global hotkeys in that same block.
 
 `Settings` is reachable from both the main menu and pause; `m_settingsFrom`
 remembers the return state and picks the backdrop (panning menu world vs the
@@ -65,9 +68,17 @@ left, hotbar right); clicking enters capture mode and the next pressed key
 binds (ESC cancels). Gameplay input reads only `m_settings.keys` — never raw
 key constants — so new actions go through the same table.
 
-World identity comes from `world/WorldList`: the Worlds screen lists the data
-dir's `saves/` (newest first) and creates named worlds with a random seed
-(see [save-format.md](save-format.md)). `startGame` and `enterMenu` are the
+World identity comes from `world/WorldList`: the SelectWorld screen lists the
+data dir's `saves/` (newest first), each row showing a block thumbnail, the
+folder name, and the last-played time + game mode; a click selects the row and
+the bottom actions (Play Selected/Edit/Delete) operate on it. The list scrolls
+with the wheel and clips to its band without scissor (rows fully outside are
+skipped). Edit renames via `worldlist::rename` (re-sanitised, suffixed on
+collision); Delete goes through ConfirmDelete to `worldlist::remove`. The
+CreateWorld form has two click-to-focus text fields, name and seed; an empty
+seed is random, an integer is used directly, and any other text is hashed
+(FNV-1a) so the same string always yields the same world (see
+[save-format.md](save-format.md)). `startGame` and `enterMenu` are the
 only world-lifecycle functions: each resets the outgoing `World` (its
 destructor blocks until worker jobs finish, saving modified chunks) and
 calls `Renderer::clearChunkMeshes()`, so two worlds never coexist and the

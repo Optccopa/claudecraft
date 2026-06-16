@@ -59,9 +59,11 @@ struct PackImage {
 };
 
 // First pack in the stack (highest priority first) that supplies
-// textures/<assetPath>.png, decoded to RGBA8, or nullopt if none do.
+// textures/<assetPath>.png, decoded to RGBA8, or nullopt if none do. `flip`
+// matches GL's bottom-up texture order; pass false for sheets indexed top-down
+// in source pixels (the bitmap font).
 [[nodiscard]] std::optional<PackImage> loadPackImage(
-    std::span<const std::filesystem::path> packs, std::string_view assetPath);
+    std::span<const std::filesystem::path> packs, std::string_view assetPath, bool flip = true);
 
 namespace resourcepacks {
 

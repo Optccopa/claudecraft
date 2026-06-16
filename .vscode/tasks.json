@@ -13,7 +13,7 @@
         {
             "label": "build (debug)",
             "type": "shell",
-            "command": "(if not exist build\\debug mkdir build\\debug) && (if not exist build\\glad.obj cl /nologo /w /MD /O2 /Iincludes\\glad\\include /c includes\\glad\\src\\glad.c /Fobuild\\glad.obj) && cl /nologo /MP /std:c++20 /EHsc /permissive- /W4 /Zi /FS /Od /MD /DNOMINMAX /Isrc /external:I includes /external:I includes\\glad\\include /external:I includes\\glfw\\include /external:I includes\\stb /external:W0 src\\*.cpp src\\app\\*.cpp src\\core\\*.cpp src\\gl\\*.cpp src\\input\\*.cpp src\\player\\*.cpp src\\render\\*.cpp src\\world\\*.cpp build\\glad.obj /Fobuild\\debug\\ /Fdbuild\\debug\\claudecraft.pdb /Febuild\\debug\\claudecraft.exe /link /LIBPATH:includes\\glfw\\lib glfw3.lib opengl32.lib gdi32.lib user32.lib shell32.lib Psapi.lib",
+            "command": "(if not exist build\\debug mkdir build\\debug) && (if not exist build\\glad.obj cl /nologo /w /MD /O2 /Iincludes\\glad\\include /c includes\\glad\\src\\glad.c /Fobuild\\glad.obj) && rc /nologo /fo build\\app.res app.rc && cl /nologo /MP /std:c++20 /EHsc /permissive- /W4 /Zi /FS /Od /MD /DNOMINMAX /Isrc /external:I includes /external:I includes\\glad\\include /external:I includes\\glfw\\include /external:I includes\\stb /external:W0 src\\*.cpp src\\app\\*.cpp src\\core\\*.cpp src\\gl\\*.cpp src\\input\\*.cpp src\\player\\*.cpp src\\render\\*.cpp src\\world\\*.cpp build\\glad.obj /Fobuild\\debug\\ /Fdbuild\\debug\\claudecraft.pdb /Febuild\\debug\\claudecraft.exe /link /LIBPATH:includes\\glfw\\lib glfw3.lib opengl32.lib gdi32.lib user32.lib shell32.lib Psapi.lib build\\app.res",
             "group": {
                 "kind": "build",
                 "isDefault": false
@@ -26,7 +26,7 @@
         {
             "label": "build (release)",
             "type": "shell",
-            "command": "(if not exist build\\release mkdir build\\release) && (if not exist build\\glad.obj cl /nologo /w /MD /O2 /Iincludes\\glad\\include /c includes\\glad\\src\\glad.c /Fobuild\\glad.obj) && cl /nologo /MP /std:c++20 /EHsc /permissive- /W4 /O2 /DNDEBUG /MD /DNOMINMAX /Isrc /external:I includes /external:I includes\\glad\\include /external:I includes\\glfw\\include /external:I includes\\stb /external:W0 src\\*.cpp src\\app\\*.cpp src\\core\\*.cpp src\\gl\\*.cpp src\\input\\*.cpp src\\player\\*.cpp src\\render\\*.cpp src\\world\\*.cpp build\\glad.obj /Fobuild\\release\\ /Febuild\\release\\claudecraft.exe /link /LIBPATH:includes\\glfw\\lib glfw3.lib opengl32.lib gdi32.lib user32.lib shell32.lib Psapi.lib",
+            "command": "(if not exist build\\release mkdir build\\release) && (if not exist build\\glad.obj cl /nologo /w /MD /O2 /Iincludes\\glad\\include /c includes\\glad\\src\\glad.c /Fobuild\\glad.obj) && rc /nologo /fo build\\app.res app.rc && cl /nologo /MP /std:c++20 /EHsc /permissive- /W4 /O2 /DNDEBUG /MD /DNOMINMAX /Isrc /external:I includes /external:I includes\\glad\\include /external:I includes\\glfw\\include /external:I includes\\stb /external:W0 src\\*.cpp src\\app\\*.cpp src\\core\\*.cpp src\\gl\\*.cpp src\\input\\*.cpp src\\player\\*.cpp src\\render\\*.cpp src\\world\\*.cpp build\\glad.obj /Fobuild\\release\\ /Febuild\\release\\claudecraft.exe /link /LIBPATH:includes\\glfw\\lib glfw3.lib opengl32.lib gdi32.lib user32.lib shell32.lib Psapi.lib build\\app.res",
             "group": "build",
             "problemMatcher": [
                 "$msCompile"

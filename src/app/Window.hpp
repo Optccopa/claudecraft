@@ -28,6 +28,9 @@ public:
 
     void swapBuffers() noexcept;
     void setTitle(const std::string& title) noexcept;
+    // Sets the title-bar/taskbar icon from a PNG (RGBA). No-op if unreadable;
+    // the exe's own file icon is a separate Win32 resource (see app.rc).
+    void setIcon(const char* pngPath) noexcept;
     void setCursorCaptured(bool captured) noexcept;
     void setVsync(bool on) noexcept;
     void setFullscreen(bool fullscreen) noexcept;
